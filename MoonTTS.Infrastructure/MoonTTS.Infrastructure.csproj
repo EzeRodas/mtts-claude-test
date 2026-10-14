@@ -3,11 +3,10 @@
   <ItemGroup>
     <ProjectReference Include="..\MoonTTS.Domain\MoonTTS.Domain.csproj" />
     <ProjectReference Include="..\MoonTTS.Core\MoonTTS.Core.csproj" />
+    <ProjectReference Include="..\MoonTTS.Engine.Protocol\MoonTTS.Engine.Protocol.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="KokoroSharp" Version="1.0.1-custom" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.22.0" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.95.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.2" />
   </ItemGroup>

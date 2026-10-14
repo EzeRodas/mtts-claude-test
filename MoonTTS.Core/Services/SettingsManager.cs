@@ -2,17 +2,18 @@ using System.Collections.Concurrent;
 using MoonTTS.Core.Utilities;
 using MoonTTS.Domain.Common;
 using MoonTTS.Domain.Entities;
-using MoonTTS.Domain.Enums;
 using MoonTTS.Domain.Interfaces;
+using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.Core.Services;
 
 /* File Structure:
         - SettingsManager(IConfigurationRepository repo)
-        - GetEngineConfig<T>(TtsModelType engine) : T
+        - GetEngineConfig(ModelId model) : EngineConfig
         - SaveAppConfig(AppConfig newConfig) : Result
-        - SaveEngineConfig<T>(TtsModelType engine, T newConfig) : Result
+        - SaveEngineConfig(ModelId model, EngineConfig newConfig) : Result
         - GetModelsDirectory() : string
+        - GetModelDirectory(ModelId model) : string
         - ReloadAppConfig() : void
 */
 
@@ -35,8 +36,7 @@ public class SettingsManager
     }
 
     /* Rwetrieves engine configuration */
-    public T GetEngineConfig<T>(TtsModelType engine) where T : IEngineConfig,
-        new() => _repo.GetEngineConfig<T>(engine);
+    public EngineConfig GetEngineConfig(ModelId model) => _repo.GetEngineConfig(model);
     
     /* Saves global app configs and notifies the UI */
     public Result SaveAppConfig(AppConfig newConfig)
@@ -46,9 +46,9 @@ public class SettingsManager
     }
 
     /* Saves engine specific configs and notifies the UI */
-    public Result SaveEngineConfig<T>(TtsModelType engine, T newConfig) where T : IEngineConfig
+    public Result SaveEngineConfig(ModelId model, EngineConfig newConfig)
     {
-        _repo.SaveEngineConfig(engine, newConfig);
+        _repo.SaveEngineConfig(model, newConfig);
         return Result.Success();
     }
 
@@ -63,6 +63,10 @@ public class SettingsManager
 
         return PathResolver.GetModelsDirectory();
     }
+
+    /* Resolves the folder holding the files of one engine's models, keeping engines from colliding on file names */
+    public string GetModelDirectory(ModelId model) =>
+        Path.Combine(GetModelsDirectory(), PathSanitizer.SanitizeFolderName(model.EngineId));
 
     public void ReloadAppConfig()
     {

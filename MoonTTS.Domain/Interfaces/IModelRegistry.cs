@@ -1,13 +1,18 @@
-using MoonTTS.Domain.Enums;
 using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.Domain.Interfaces;
 
 public interface IModelRegistry
 {
-    /* Returns a collection of all supported models by the app */
+    /* Returns every model offered by the installed engines */
     IEnumerable<ModelMetadata> GetAvailableModels();
 
     /* Looks up the metadata for a specific model */
-    ModelMetadata? GetModelMetadata(TtsModelType modelType);
+    ModelMetadata? GetModelMetadata(ModelId modelId);
+
+    /* Resolves user input ("<engine>/<model>" or an unambiguous model name), ignoring case */
+    ModelMetadata? FindModel(string query);
+
+    /* Looks up the installed engine that owns a model */
+    EngineDescriptor? GetEngine(string engineId);
 }

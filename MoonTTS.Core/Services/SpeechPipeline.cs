@@ -68,7 +68,7 @@ public class SpeechPipeline : ISpeechPipeline
         if (string.IsNullOrWhiteSpace(rawText))
             return Result<SpeechResult>.Failure("Text to speech cannot be empty.");
 
-        var engine = _engineProvider.CurrentEngine;
+        var engine = await _engineProvider.GetEngineAsync(cancellationToken);
         if (!engine.IsAvailable)
             return Result<SpeechResult>.Failure("TTS model is not available or downloaded.");
 

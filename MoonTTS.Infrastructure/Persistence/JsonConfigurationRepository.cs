@@ -2,8 +2,8 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using MoonTTS.Core.Utilities;
 using MoonTTS.Domain.Entities;
-using MoonTTS.Domain.Enums;
 using MoonTTS.Domain.Interfaces;
+using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.Infrastructure.Persistence;
 
@@ -15,8 +15,9 @@ namespace MoonTTS.Infrastructure.Persistence;
         - SaveProfileData(ProfileDataStore profile) : void
         - SaveHotkeys(List<HotkeyEntry> entries) : void
         - SaveHistory(List<HistoryEntry> entires) : void
-        - GetEngineConfig<T>(TtsModelType engine) : T
-        - SaveEngineConfig<T>(TtsModelType engine, T config) : void
+        - GetEngineConfig(ModelId model) : EngineConfig
+        - SaveEngineConfig(ModelId model, EngineConfig config) : void
+        - GetEngineConfigPath(ModelId model) : string
         - LoadInternal<T>(string relativePath, JsonTypeInfo<T> typeInfo) : T?
         - SaveInternal<T>(string relativePath, T data, JsonTypeInfo<T> typeInfo) : void
         - GetActiveProfileFolder() : string
@@ -34,7 +35,7 @@ public class JsonConfigurationRepository : IConfigurationRepository
     public IReadOnlyList<HotkeyEntry> Hotkeys { get; private set; } = new List<HotkeyEntry>();
     public IReadOnlyList<HistoryEntry> HistoryEntries { get; private set; } = new List<HistoryEntry>();
 
-    private readonly ConcurrentDictionary<TtsModelType, IEngineConfig> _engineConfigs = new();
+    private readonly ConcurrentDictionary<ModelId, EngineConfig> _engineConfigs = new();
     
     public event Action? AppConfigChanged;
     public event Action? EngineConfigChanged;
@@ -131,32 +132,27 @@ public class JsonConfigurationRepository : IConfigurationRepository
         HistoryChanged?.Invoke();
     }
 
-    public T GetEngineConfig<T>(TtsModelType engine) where T : IEngineConfig, new()
+    /* Returns the cached per-model preferences, loading them from disk the first time */
+    public EngineConfig GetEngineConfig(ModelId model)
     {
-        return (T)_engineConfigs.GetOrAdd(engine, e =>
-        {
-            string path = Path.Combine("engine configurations", $"{e}.json");
-            
-            /* Explicit type check to route to correct source gen metadata */
-            if (typeof(T) == typeof(KokoroEngineConfig))
-            {
-                return (T)(object)(LoadInternal(path, AppJsonContext.Default.KokoroEngineConfig) ?? new KokoroEngineConfig());
-            }
-
-            return new T();
-        });
+        return _engineConfigs.GetOrAdd(model, m =>
+            LoadInternal(GetEngineConfigPath(m), AppJsonContext.Default.EngineConfig) ?? new EngineConfig());
     }
 
-    public void SaveEngineConfig<T>(TtsModelType engine, T config) where T : IEngineConfig
+    /* Persists the per-model preferences and notifies listeners */
+    public void SaveEngineConfig(ModelId model, EngineConfig config)
     {
-        _engineConfigs[engine] = config;
-        string path = Path.Combine("engine configurations", $"{engine}.json");
-        
-        if (typeof(T) == typeof(KokoroEngineConfig))
-        {
-            SaveInternal(path, (KokoroEngineConfig)(object)config, AppJsonContext.Default.KokoroEngineConfig);
-        }
+        _engineConfigs[model] = config;
+        SaveInternal(GetEngineConfigPath(model), config, AppJsonContext.Default.EngineConfig);
         EngineConfigChanged?.Invoke();
+    }
+
+    /* Builds "engine configurations/<engine>/<model>.json" with names made safe for every OS */
+    private static string GetEngineConfigPath(ModelId model)
+    {
+        string engineFolder = model.IsUnselected ? "unselected" : PathSanitizer.SanitizeFolderName(model.EngineId);
+        string modelFile = model.IsUnselected ? "unselected" : PathSanitizer.SanitizeFolderName(model.ModelName);
+        return Path.Combine("engine configurations", engineFolder, $"{modelFile}.json");
     }
 
     private T? LoadInternal<T>(string relativePath, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)

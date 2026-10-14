@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Out-of-process Kokoro engine worker. It is intentionally not part of MoonTTS.slnx: the host never links it.
+       Install with: dotnet publish Engines/Kokoro -o "<data>/Moon-TTS/engines/Kokoro" -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>kokoro-worker</AssemblyName>
+    <RootNamespace>MoonTTS.Engine.Kokoro</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <StackTraceSupport>true</StackTraceSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\MoonTTS.Engine.Protocol\MoonTTS.Engine.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="KokoroSharp" Version="1.0.1-custom" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.22.0" />
+  </ItemGroup>
+
+  <!-- The manifest sits next to the worker in the installed engine folder -->
+  <ItemGroup>
+    <None Include="engine.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

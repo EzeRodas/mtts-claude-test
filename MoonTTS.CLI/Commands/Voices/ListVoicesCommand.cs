@@ -17,12 +17,12 @@ public static class ListVoicesCommand
             Arity = ArgumentArity.ZeroOrOne };
         command.Add(filterArg);
 
-        command.SetAction((parseResult) =>
+        command.SetAction(async (parseResult, cancellationToken) =>
         {
             var engineProvider = services.GetRequiredService<ITtsEngineProvider>();
             var settingsManager = services.GetRequiredService<SettingsManager>();
 
-            var engine = engineProvider.CurrentEngine;
+            var engine = await engineProvider.GetEngineAsync(cancellationToken);
             if (!engine.IsAvailable)
             {
                 Terminal.Error("Error: No TTS model is currently loaded.");
@@ -41,7 +41,10 @@ public static class ListVoicesCommand
             string? filter = parseResult.GetValue(filterArg);
             var displayVoices = string.IsNullOrWhiteSpace(filter)
                 ? allVoices
-                : allVoices.Where(v => v.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                : allVoices.Where(v => v.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                       || (v.Name?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false)
+                                       || (v.Language?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false))
+                    .ToList();
 
             if (displayVoices.Count == 0)
             {
@@ -51,11 +54,13 @@ public static class ListVoicesCommand
 
             string activeVoice = engine.ActiveVoice;
 
-            var headers = new[] { "Voice ID", "Status" };
+            var headers = new[] { "Voice ID", "Name", "Language", "Status" };
             var rows = displayVoices.Select(v => new[]
             {
-                v,
-                string.Equals(v, activeVoice, StringComparison.OrdinalIgnoreCase) ? "ACTIVE" : "-"
+                v.Id,
+                v.Name ?? "-",
+                v.Language ?? "-",
+                string.Equals(v.Id, activeVoice, StringComparison.OrdinalIgnoreCase) ? "ACTIVE" : "-"
             });
             
             var activeModel = settingsManager.CurrentAppConfig.ActiveModel;

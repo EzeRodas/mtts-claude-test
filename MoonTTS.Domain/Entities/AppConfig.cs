@@ -1,11 +1,11 @@
-using MoonTTS.Domain.Enums;
+using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.Domain.Entities;
 
 public class AppConfig
 {
     public string? CustomModelsDirectory { get; set; }
-    public TtsModelType ActiveModel { get; set; } = TtsModelType.Unselected;
+    public ModelId ActiveModel { get; set; } = ModelId.Unselected;
     public bool HideOnSynth { get; set; } = false;
     public bool OpenOnStartup { get; set; } = false;
     public int DefaultMonitor { get; set; } = 0; /* Display monitor to start the app at */

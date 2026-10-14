@@ -8,21 +8,23 @@ using System.Threading.Tasks;
 using MoonTTS.Domain.Audio;
 using MoonTTS.Domain.Common;
 using MoonTTS.Domain.Interfaces;
+using MoonTTS.Domain.ValueObjects;
 
 public class EmptyTtsEngine : ITtsEngine
 {
+    /* No audio is ever produced, so the format only has to be a valid placeholder for consumers */
     public AudioFormat OutputFormat => new AudioFormat(24000, 1, 16);
     public bool IsAvailable => false;
     public float Speed { get; set; } = 1.0f;
     public string ActiveVoice { get; set; } =  string.Empty;
 
     /* Returns an empty list since no engine is active */
-    public List<string> ListVoices() => new();
+    public IReadOnlyList<VoiceInfo> ListVoices() => Array.Empty<VoiceInfo>();
 
     /* Yields no audio chunks since no engine is active */
     public async IAsyncEnumerable<ReadOnlyMemory<byte>> SynthesizeStreamAsync(
-        string text, 
-        float? speedOverride = default, 
+        string text,
+        float? speedOverride = default,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.CompletedTask;
@@ -31,13 +33,13 @@ public class EmptyTtsEngine : ITtsEngine
 
     /* Returns a failure result notifying the caller that no engine is selected */
     public Task<Result<byte[]>> SynthesizeAsync(
-        string text, 
-        float? speedOverride = default, 
+        string text,
+        float? speedOverride = default,
         CancellationToken cancellationToken = default)
     {
         return Task.FromResult(Result<byte[]>.Failure("No TTS engine is selected. Please select a model before synthesizing."));
     }
-    
+
     /* Disposes resources (no-op for empty engine) */
     public void Dispose() { }
 }

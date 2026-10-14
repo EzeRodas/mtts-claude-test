@@ -46,6 +46,9 @@ public partial class App : Application
             /* Prevents the app from exiting when the window is hidden */
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
+            /* Disposes singletons on exit so engine workers are shut down cleanly */
+            desktop.Exit += (_, _) => (Services as IDisposable)?.Dispose();
+
             
             /* Creates thw window and service */
             var mainWindow = new MainWindow();
@@ -200,7 +203,8 @@ public partial class App : Application
         services.AddSingleton<ProfileManager>();
         services.AddSingleton<HttpClient>();
         services.AddSingleton<GlobalShortcutManager>();
-        services.AddSingleton<IModelRegistry, SupportedModelRegistry>();
+        services.AddSingleton<IModelRegistry>(_ => new EngineCatalog());
+        services.AddSingleton<EngineVoiceStore>();
         services.AddSingleton<IModelDownloader, HttpModelDownloader>();
         services.AddSingleton<DownloadManager>();
         services.AddSingleton<IAudioPlayer>(_ => AudioPlayerManager.Create());

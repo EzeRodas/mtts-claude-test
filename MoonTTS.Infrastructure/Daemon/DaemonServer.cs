@@ -46,7 +46,7 @@ public class DaemonServer
         _lastActivityTime = DateTime.UtcNow;
 
         /* Prewarms the model when the daemon spawns */
-        _ = _engineProvider.CurrentEngine;
+        await _engineProvider.GetEngineAsync(cancellationToken).ConfigureAwait(false);
         using var timerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _ = Task.Run(async () =>
         {
@@ -162,12 +162,12 @@ public class DaemonServer
         
         _settingsManager.ReloadAppConfig();
         var targetModel = _settingsManager.CurrentAppConfig.ActiveModel;
-        if (_engineProvider.CurrentModelType != targetModel)
+        if (_engineProvider.CurrentModel != targetModel)
         {
-            _engineProvider.SetEngine(targetModel);
+            await _engineProvider.SetEngineAsync(targetModel, cancellationToken).ConfigureAwait(false);
         }
 
-        var engine = _engineProvider.CurrentEngine;
+        var engine = await _engineProvider.GetEngineAsync(cancellationToken).ConfigureAwait(false);
         if (!engine.IsAvailable)
         {
             var failResponse = new DaemonResponse

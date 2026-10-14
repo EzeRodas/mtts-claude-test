@@ -1,6 +1,5 @@
 using MoonTTS.Core.Utilities;
 using MoonTTS.Domain.Common;
-using MoonTTS.Domain.Enums;
 using MoonTTS.Domain.Interfaces;
 using MoonTTS.Domain.ValueObjects;
 
@@ -10,14 +9,14 @@ namespace MoonTTS.Core.Services;
         - DownloadManager(
             IModelRegistry modelRegistry,
             IModelDownloader modelDownloader,
-            IConfigurationRepository repo)
+            SettingsManager settingsManager)
         - GetAvailableModels() : IEnumerable<ModelMetadata>
-        - IsModelDownloaded(TtsModelType modelType) : bool
+        - IsModelDownloaded(ModelId modelId) : bool
         - DownloadModelAsync(
-            TtsModelType modelType,
+            ModelId modelId,
             IProgress<double>? progress,
             CancellationToken cancellationToken) : Task<Result>
-        - DeleteModel(TtsModelType modelType) : Result
+        - DeleteModel(ModelId modelId) : Result
 */
 
 public class DownloadManager
@@ -45,13 +44,13 @@ public class DownloadManager
     }
 
     /* Checks if the file exists */
-    public bool IsModelDownloaded(TtsModelType modelType)
+    public bool IsModelDownloaded(ModelId modelId)
     {
-        var metadata = _modelRegistry.GetModelMetadata(modelType);
+        var metadata = _modelRegistry.GetModelMetadata(modelId);
         if (metadata == null)
             return false;
 
-        string modelsDir = _settingsManager.GetModelsDirectory();
+        string modelsDir = _settingsManager.GetModelDirectory(modelId);
 
         foreach (string expectedFileName in metadata.DownloadFiles.Keys)
         {
@@ -66,22 +65,22 @@ public class DownloadManager
 
     /* Manages the entire download process */
     public async Task<Result> DownloadModelAsync(
-        TtsModelType modelType,
+        ModelId modelId,
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default
     )
     {
         /* Verifies the model is supported */
-        var metadata = _modelRegistry.GetModelMetadata(modelType);
+        var metadata = _modelRegistry.GetModelMetadata(modelId);
         if (metadata == null)
         {
             return Result.Failure(
-                $"Model type '{modelType}' is not registered as a supported model."
+                $"Model '{modelId}' is not provided by any installed engine."
             );
         }
 
-        /* Gets the destination folder */
-        string destinationFolder = _settingsManager.GetModelsDirectory();
+        /* Gets the destination folder (one sub folder per engine) */
+        string destinationFolder = _settingsManager.GetModelDirectory(modelId);
         Directory.CreateDirectory(destinationFolder);
 
         /* Commands the infrastructure to perform the download */
@@ -93,14 +92,14 @@ public class DownloadManager
         );
     }
 
-    public Result DeleteModel(TtsModelType modelType)
+    public Result DeleteModel(ModelId modelId)
     {
         /* Checks the model is registered */
-        var metadata = _modelRegistry.GetModelMetadata(modelType);
+        var metadata = _modelRegistry.GetModelMetadata(modelId);
         if (metadata == null)
-            return Result.Failure($"Model '{modelType}' is not registered as a supported model.");
+            return Result.Failure($"Model '{modelId}' is not provided by any installed engine.");
 
-        string modelsDir = _settingsManager.GetModelsDirectory();
+        string modelsDir = _settingsManager.GetModelDirectory(modelId);
         Directory.CreateDirectory(modelsDir);
 
         bool anyDeleted = false;
@@ -119,8 +118,8 @@ public class DownloadManager
                 /* Filters to see if the other models share that key within their registry */
                 bool isSharedWithDownloadedModel = _modelRegistry
                     .GetAvailableModels()
-                    .Where(m => m.ModelType != modelType)
-                    .Where(m => IsModelDownloaded(m.ModelType))
+                    .Where(m => m.Id != modelId && m.Id.EngineId == modelId.EngineId)
+                    .Where(m => IsModelDownloaded(m.Id))
                     .Any(m => m.DownloadFiles.ContainsKey(fileName));
 
                 if (!isSharedWithDownloadedModel)
@@ -130,7 +129,7 @@ public class DownloadManager
                 }
             }
             if (!anyDeleted)
-                return Result.Failure($"No files found for model '{modelType}'.");
+                return Result.Failure($"No files found for model '{modelId}'.");
 
             return Result.Success();
         }

@@ -19,10 +19,10 @@ namespace MoonTTS.Infrastructure.Persistence;
 [JsonSerializable(typeof(DaemonResponse))]
 [JsonSerializable(typeof(AudioFormat))]
 
-[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSourceGenerationOptions(WriteIndented = true, Converters = new[] { typeof(ModelIdJsonConverter) })]
 
-/* Engine specifics */
-[JsonSerializable(typeof(KokoroEngineConfig))]
+/* Per-model preferences */
+[JsonSerializable(typeof(EngineConfig))]
 public partial class AppJsonContext : JsonSerializerContext
 {
 }

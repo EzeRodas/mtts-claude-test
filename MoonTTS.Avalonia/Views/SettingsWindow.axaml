@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:entities="using:MoonTTS.Domain.Entities"
+        xmlns:valueObjects="using:MoonTTS.Domain.ValueObjects"
         mc:Ignorable="d" d:DesignWidth="760" d:DesignHeight="540"
         x:Class="MoonTTS.Avalonia.Views.SettingsWindow"
         x:DataType="vm:SettingsViewModel"
@@ -86,11 +87,23 @@
                     <StackPanel Spacing="10">
                         <Grid ColumnDefinitions="70,*">
                             <TextBlock Text="Model" Classes="field-label" VerticalAlignment="Center"/>
-                            <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch"/>
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="valueObjects:ModelMetadata">
+                                        <TextBlock Text="{Binding DisplayName}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
                         </Grid>
                         <Grid ColumnDefinitions="70,*">
                             <TextBlock Text="Voice" Classes="field-label" VerticalAlignment="Center"/>
-                            <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableVoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch"/>
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableVoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="valueObjects:VoiceInfo">
+                                        <TextBlock Text="{Binding DisplayName}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -265,16 +278,28 @@
                             <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Engine}}">
                                 <TextBlock Text="TTS Engine Configuration" Classes="section-title"/>
                                 <TextBlock Text="Active Model" Classes="field-label"/>
-                                <ComboBox ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch"/>
+                                <ComboBox ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="valueObjects:ModelMetadata">
+                                            <TextBlock Text="{Binding DisplayName}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
                                 <TextBlock Text="Voice Preset" Classes="field-label"/>
-                                <ComboBox ItemsSource="{Binding AvailableVoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch"/>
+                                <ComboBox ItemsSource="{Binding AvailableVoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="valueObjects:VoiceInfo">
+                                            <TextBlock Text="{Binding DisplayName}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
                                 <Grid ColumnDefinitions="*,50">
                                     <TextBlock Text="Synthesis Speed" Classes="field-label"/>
                                     <TextBlock Grid.Column="1" Text="{Binding SpeechSpeed, StringFormat={}{0:0.0}x}" FontWeight="SemiBold" HorizontalAlignment="Right"/>
                                 </Grid>
                                 <Slider Minimum="0.5" Maximum="2.0" Value="{Binding SpeechSpeed}" ToolTip.Tip="{Binding SpeechSpeed, StringFormat={}{0:0.0}x}" ToolTip.ShowDelay="0"/>
                                 <TextBlock Text="Custom Models Directory" Classes="field-label"/>
-                                <TextBox Text="{Binding CustomModelsDirectory}" PlaceholderText="Default (~/.config/moontts/models/)"/>
+                                <TextBox Text="{Binding CustomModelsDirectory}" PlaceholderText="Default (~/.local/share/Moon-TTS/models/)"/>
                             </StackPanel>
 
                             <!-- Engine Management Tab -->
