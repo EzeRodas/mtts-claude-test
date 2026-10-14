@@ -1,0 +1,34 @@
+using MoonTTS.Domain.Audio;
+using MoonTTS.Domain.Common;
+
+namespace MoonTTS.Domain.Interfaces;
+
+/* Unified speech pipeline interface for text splitting, dictionary replacements, streaming playback and history */
+public interface ISpeechPipeline
+{
+    /* Synthesizes and streams speech using default accessibility settings */
+    Task<Result<SpeechResult>> SpeakAsync(
+        string text, 
+        CancellationToken cancellationToken = default);
+
+    /* Synthesizes and streams speech with custom speech options overrides */
+    Task<Result<SpeechResult>> SpeakAsync(
+        string text, 
+        SpeechOptions options, 
+        CancellationToken cancellationToken = default);
+
+    /* Pauses the active speech playback */
+    void Pause();
+
+    /* Resumes paused speech playback */
+    void Resume();
+
+    /* Immediately cancels synthesis and stops speech playback */
+    void Stop();
+
+    /* Indicates whether speech synthesis or playback is currently in progress */
+    bool IsSpeaking { get; }
+
+    /* Indicates whether speech playback is currently paused */
+    bool IsPaused { get; }
+}

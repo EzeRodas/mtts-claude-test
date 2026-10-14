@@ -1,0 +1,495 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MoonTTS.Avalonia.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:entities="using:MoonTTS.Domain.Entities"
+        mc:Ignorable="d" d:DesignWidth="760" d:DesignHeight="540"
+        x:Class="MoonTTS.Avalonia.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Icon="/Assets/icon.ico"
+        Title="Settings"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        WindowDecorations="None"
+        WindowStartupLocation="Manual"
+        CanResize="False"
+        ShowInTaskbar="False"
+        RequestedThemeVariant="Light"
+        Width="320"
+        Height="550">
+
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Escape" Command="{Binding CloseCommand}"/>
+    </Window.KeyBindings>
+
+    <!-- Global Palette & Resource Constants -->
+    <Window.Resources>
+        <Color x:Key="ColorPrimary">#6366F1</Color>
+        <Color x:Key="ColorPrimaryHover">#4F46E5</Color>
+        <Color x:Key="ColorDanger">#EF4444</Color>
+        <Color x:Key="ColorDangerBg">#FEE2E2</Color>
+        <Color x:Key="ColorSuccess">#10B981</Color>
+        <Color x:Key="ColorSurface">#FFFFFF</Color>
+        <Color x:Key="ColorBackground">#F9FAFB</Color>
+        <Color x:Key="ColorHover">#F3F4F6</Color>
+        <Color x:Key="ColorBorder">#E5E7EB</Color>
+        <Color x:Key="ColorTextPrimary">#111827</Color>
+        <Color x:Key="ColorTextSecondary">#4B5563</Color>
+        <Color x:Key="ColorTextMuted">#9CA3AF</Color>
+
+        <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource ColorPrimary}"/>
+        <SolidColorBrush x:Key="PrimaryHoverBrush" Color="{StaticResource ColorPrimaryHover}"/>
+        <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource ColorDanger}"/>
+        <SolidColorBrush x:Key="DangerBgBrush" Color="{StaticResource ColorDangerBg}"/>
+        <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource ColorSuccess}"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource ColorSurface}"/>
+        <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource ColorBackground}"/>
+        <SolidColorBrush x:Key="HoverBrush" Color="{StaticResource ColorHover}"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource ColorBorder}"/>
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource ColorTextPrimary}"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource ColorTextSecondary}"/>
+        <SolidColorBrush x:Key="TextMutedBrush" Color="{StaticResource ColorTextMuted}"/>
+    </Window.Resources>
+
+    <Panel Margin="6">
+
+        <!-- =============================================================== -->
+        <!-- VIEW 1: QUICK SETTINGS CARD (Visible when !IsAdvancedView)       -->
+        <!-- =============================================================== -->
+        <Border Classes="main-card" Padding="16" IsVisible="{Binding !IsAdvancedView}">
+            <Border.BoxShadow>
+                <BoxShadows>0 10 25 0 #25000000</BoxShadows>
+            </Border.BoxShadow>
+
+            <StackPanel Spacing="14">
+                <!-- Header -->
+                <Grid ColumnDefinitions="*,Auto,Auto">
+                    <TextBlock Text="Quick settings" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                    
+                    <Button Grid.Column="1" Classes="btn-icon" Margin="0,0,6,0"
+                            Command="{Binding SwitchToAdvancedCommand}" ToolTip.Tip="Advanced Settings">
+                        <Path Data="M16 4h4v4 M14 10l6-6 M8 20H4v-4 M4 20l6-6 M16 20h4v-4 M14 14l6 6 M8 4H4v4 M4 4l6 6"
+                              Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="2" Width="14" Height="14" Stretch="Uniform"/>
+                    </Button>
+
+                    <Button Grid.Column="2" Classes="btn-icon"
+                            Command="{Binding CloseCommand}" ToolTip.Tip="Close (Escape)">
+                        <Path Data="M18 6l-12 12 M6 6l12 12" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="2" Width="12" Height="12" Stretch="Uniform"/>
+                    </Button>
+                </Grid>
+
+                <Separator Background="{StaticResource HoverBrush}" Height="1"/>
+
+                <!-- Model & Voice Selection -->
+                <Border Classes="card-section">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnDefinitions="70,*">
+                            <TextBlock Text="Model" Classes="field-label" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="70,*">
+                            <TextBlock Text="Voice" Classes="field-label" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableVoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Audio Output -->
+                <Border Classes="card-section">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="Output" Classes="field-label" VerticalAlignment="Center"/>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnablePrimaryPlayback}" OnContent="" OffContent=""/>
+                        </Grid>
+                        <ComboBox ItemsSource="{Binding AvailableOutputDevices}" 
+                                  SelectedItem="{Binding SelectedPrimaryDevice}" 
+                                  HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="entities:AudioDeviceInfo">
+                                    <TextBlock Text="{Binding DeviceName}" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Grid ColumnDefinitions="*,40">
+                            <Slider Minimum="0" Maximum="100" Value="{Binding PrimaryVolume}"
+                                    ToolTip.Tip="{Binding PrimaryVolume, StringFormat={}{0}%}"
+                                    ToolTip.ShowDelay="0" ToolTip.Placement="Top"/>
+                            <TextBlock Grid.Column="1" Text="{Binding PrimaryVolume, StringFormat={}{0}%}"
+                                       FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Audio Monitoring -->
+                <Border Classes="card-section">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="Monitoring" Classes="field-label" VerticalAlignment="Center"/>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableMonitorPlayback}" OnContent="" OffContent=""/>
+                        </Grid>
+                        <ComboBox ItemsSource="{Binding AvailableOutputDevices}" 
+                                  SelectedItem="{Binding SelectedMonitorDevice}" 
+                                  HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="entities:AudioDeviceInfo">
+                                    <TextBlock Text="{Binding DeviceName}" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Grid ColumnDefinitions="*,40">
+                            <Slider Minimum="0" Maximum="100" Value="{Binding MonitorVolume}"
+                                    ToolTip.Tip="{Binding MonitorVolume, StringFormat={}{0}%}"
+                                    ToolTip.ShowDelay="0" ToolTip.Placement="Top"/>
+                            <TextBlock Grid.Column="1" Text="{Binding MonitorVolume, StringFormat={}{0}%}"
+                                       FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <!-- =============================================================== -->
+        <!-- VIEW 2: 2-COLUMN ADVANCED DASHBOARD (Visible when IsAdvancedView)-->
+        <!-- =============================================================== -->
+        <Border Classes="main-card" IsVisible="{Binding IsAdvancedView}" ClipToBounds="True">
+            <Border.BoxShadow>
+                <BoxShadows>0 15 35 0 #35000000</BoxShadows>
+            </Border.BoxShadow>
+
+            <Grid ColumnDefinitions="210,*">
+                <!-- Left Sidebar -->
+                <Border Grid.Column="0" Background="{StaticResource BackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0" Padding="16">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Spacing="8">
+                            <Button Content="&lt; Quick Settings" Command="{Binding SwitchToQuickCommand}" 
+                                    Background="Transparent" Foreground="{StaticResource PrimaryBrush}" FontWeight="Bold" 
+                                    HorizontalAlignment="Stretch" Cursor="Hand"/>
+                            <Button Content="Exit Moon-TTS" Command="{Binding ExitAppCommand}" 
+                                    Background="Transparent" Foreground="{StaticResource DangerBrush}" FontWeight="Bold" 
+                                    HorizontalAlignment="Stretch" Cursor="Hand"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="ADVANCED" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="8,0,0,8"/>
+                            <Button Content="General" Command="{Binding SelectTabCommand}" CommandParameter="{x:Static vm:AdvancedTab.General}" Classes.active="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.General}}" Classes="nav-item"/>
+                            <Button Content="Audio" Command="{Binding SelectTabCommand}" CommandParameter="{x:Static vm:AdvancedTab.Audio}" Classes.active="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Audio}}" Classes="nav-item"/>
+                            <Button Content="Dictionary" Command="{Binding SelectTabCommand}" CommandParameter="{x:Static vm:AdvancedTab.Dictionary}" Classes.active="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Dictionary}}" Classes="nav-item"/>
+                            <Button Content="TTS Engine" Command="{Binding SelectTabCommand}" CommandParameter="{x:Static vm:AdvancedTab.Engine}" Classes.active="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Engine}}" Classes="nav-item"/>
+                            <Button Content="Engine Management" Command="{Binding SelectTabCommand}" CommandParameter="{x:Static vm:AdvancedTab.EngineManagement}" Classes.active="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.EngineManagement}}" Classes="nav-item"/>
+                            <Button Content="Hotkeys" Command="{Binding SelectTabCommand}" CommandParameter="{x:Static vm:AdvancedTab.Hotkeys}" Classes.active="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Hotkeys}}" Classes="nav-item"/>
+                            <Button Content="History" Command="{Binding SelectTabCommand}" CommandParameter="{x:Static vm:AdvancedTab.History}" Classes.active="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.History}}" Classes="nav-item"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- Right Content Area -->
+                <Border Grid.Column="1" Padding="24" Background="{StaticResource SurfaceBrush}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <Panel>
+                            <!-- General Tab -->
+                            <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.General}}">
+                                <TextBlock Text="General Settings" Classes="section-title"/>
+                                <TextBlock Text="Configure startup display and window behavior." Classes="section-desc"/>
+                                <CheckBox Content="Hide HUD automatically when speech begins" IsChecked="{Binding HideOnSynth}"/>
+                                <CheckBox Content="Remember HUD window coordinates on screen" IsChecked="{Binding RememberPosition}"/>
+                                <CheckBox Content="Start minimized to system tray" IsChecked="{Binding OpenOnStartup}"/>
+                                <CheckBox Content="Create Linux Virtual Microphone null-sink on startup" IsChecked="{Binding CreateMicOnStartup}"/>
+                            </StackPanel>
+
+                            <!-- Audio Tab -->
+                            <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Audio}}">
+                                <TextBlock Text="Audio Settings" Classes="section-title"/>
+                                <Border Classes="card-section">
+                                    <StackPanel Spacing="10">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="Audio Playback" Classes="field-label"/>
+                                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnablePrimaryPlayback}" OnContent="" OffContent=""/>
+                                        </Grid>
+                                        <ComboBox ItemsSource="{Binding AvailableOutputDevices}" SelectedItem="{Binding SelectedPrimaryDevice}" HorizontalAlignment="Stretch">
+                                            <ComboBox.ItemTemplate><DataTemplate x:DataType="entities:AudioDeviceInfo"><TextBlock Text="{Binding DeviceName}"/></DataTemplate></ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <Grid ColumnDefinitions="*,40">
+                                            <Slider Minimum="0" Maximum="100" Value="{Binding PrimaryVolume}" ToolTip.Tip="{Binding PrimaryVolume, StringFormat={}{0}%}" ToolTip.ShowDelay="0"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding PrimaryVolume, StringFormat={}{0}%}" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Classes="card-section">
+                                    <StackPanel Spacing="10">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="Audio Monitoring (Virtual Mic)" Classes="field-label"/>
+                                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableMonitorPlayback}" OnContent="" OffContent=""/>
+                                        </Grid>
+                                        <ComboBox ItemsSource="{Binding AvailableOutputDevices}" SelectedItem="{Binding SelectedMonitorDevice}" HorizontalAlignment="Stretch">
+                                            <ComboBox.ItemTemplate><DataTemplate x:DataType="entities:AudioDeviceInfo"><TextBlock Text="{Binding DeviceName}"/></DataTemplate></ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <Grid ColumnDefinitions="*,40">
+                                            <Slider Minimum="0" Maximum="100" Value="{Binding MonitorVolume}" ToolTip.Tip="{Binding MonitorVolume, StringFormat={}{0}%}" ToolTip.ShowDelay="0"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding MonitorVolume, StringFormat={}{0}%}" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- Dictionary Tab -->
+                            <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Dictionary}}">
+                                <TextBlock Text="Phonetic Dictionary" Classes="section-title"/>
+                                <Border Classes="card-section">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="Add Word Replacement" Classes="field-label"/>
+                                        <Grid ColumnDefinitions="*,*,Auto">
+                                            <TextBox Text="{Binding NewDictOriginal}" PlaceholderText="Original word" Margin="0,0,6,0"/>
+                                            <TextBox Grid.Column="1" Text="{Binding NewDictSpelling}" PlaceholderText="Spelling replacement" Margin="0,0,6,0"/>
+                                            <Button Grid.Column="2" Content="Add" Command="{Binding AddDictionaryEntryCommand}" Classes="btn-primary" Cursor="Hand"/>
+                                        </Grid>
+                                        <CheckBox Content="Case sensitive" IsChecked="{Binding NewDictCaseSensitive}"/>
+                                    </StackPanel>
+                                </Border>
+                                <ListBox ItemsSource="{Binding DictionaryEntries}" Height="200" Classes="data-list">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="entities:DictionaryEntry">
+                                            <Grid ColumnDefinitions="*,*,Auto">
+                                                <TextBlock Text="{Binding Original}" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Spelling}" Foreground="{StaticResource PrimaryBrush}" VerticalAlignment="Center"/>
+                                                <Button Grid.Column="2" Content="✕" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteDictionaryEntryCommand}" CommandParameter="{Binding Id}" Classes="btn-icon btn-delete" ToolTip.Tip="Delete"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+
+                            <!-- TTS Engine Tab -->
+                            <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Engine}}">
+                                <TextBlock Text="TTS Engine Configuration" Classes="section-title"/>
+                                <TextBlock Text="Active Model" Classes="field-label"/>
+                                <ComboBox ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch"/>
+                                <TextBlock Text="Voice Preset" Classes="field-label"/>
+                                <ComboBox ItemsSource="{Binding AvailableVoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch"/>
+                                <Grid ColumnDefinitions="*,50">
+                                    <TextBlock Text="Synthesis Speed" Classes="field-label"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding SpeechSpeed, StringFormat={}{0:0.0}x}" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider Minimum="0.5" Maximum="2.0" Value="{Binding SpeechSpeed}" ToolTip.Tip="{Binding SpeechSpeed, StringFormat={}{0:0.0}x}" ToolTip.ShowDelay="0"/>
+                                <TextBlock Text="Custom Models Directory" Classes="field-label"/>
+                                <TextBox Text="{Binding CustomModelsDirectory}" PlaceholderText="Default (~/.config/moontts/models/)"/>
+                            </StackPanel>
+
+                            <!-- Engine Management Tab -->
+                            <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.EngineManagement}}">
+                                <TextBlock Text="Engine Management" Classes="section-title"/>
+                                <TextBlock Text="Manage, download, and delete local neural model files." Classes="section-desc"/>
+
+                                <ItemsControl ItemsSource="{Binding ModelStatuses}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ModelStatusItem">
+                                            <Border Classes="card-section" Margin="0,0,0,10">
+                                                <StackPanel Spacing="8">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                                            <TextBlock Text="✓ Installed" Foreground="{StaticResource SuccessBrush}" FontWeight="Bold" 
+                                                                       VerticalAlignment="Center" IsVisible="{Binding IsDownloaded}"/>
+                                                            <Button Content="Delete" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteModelCommand}" 
+                                                                    CommandParameter="{Binding}" Classes="btn-danger" IsVisible="{Binding IsDownloaded}" Cursor="Hand"/>
+                                                            <Button Content="Download" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DownloadModelCommand}" 
+                                                                    CommandParameter="{Binding}" Classes="btn-primary" IsVisible="{Binding !IsDownloaded}" Cursor="Hand"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                    <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100" Height="4" CornerRadius="2" IsVisible="{Binding IsDownloading}"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+
+                            <!-- Hotkeys Tab -->
+                            <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Hotkeys}}">
+                                <TextBlock Text="Global Hotkeys" Classes="section-title"/>
+                                <TextBlock Text="Global Toggle Shortcut" Classes="field-label"/>
+
+                                <!-- Global Toggle Hotkey Detection -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Button Classes="hotkey-btn"
+                                            Classes.recording="{Binding IsRecordingToggleHotkey}"
+                                            Content="{Binding ToggleHotkeyDisplayText}"
+                                            Command="{Binding ToggleRecordingToggleHotkeyCommand}"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                                    <Button Grid.Column="1" Content="{Binding ToggleRecordButtonText}"
+                                            Command="{Binding ToggleRecordingToggleHotkeyCommand}"
+                                            Classes="btn-primary" Margin="8,0,0,0"/>
+                                </Grid>
+
+                                <Border Classes="card-section">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="Add Phrase Shortcut" Classes="field-label"/>
+                                        <Grid ColumnDefinitions="160,*,Auto">
+                                            <!-- Phrase Hotkey Detection -->
+                                            <Button Classes="hotkey-btn"
+                                                    Classes.recording="{Binding IsRecordingPhraseHotkey}"
+                                                    Content="{Binding PhraseHotkeyDisplayText}"
+                                                    Command="{Binding ToggleRecordingPhraseHotkeyCommand}"
+                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBox Grid.Column="1" Text="{Binding NewHotkeyPhrase}" PlaceholderText="Phrase to synthesize" Margin="0,0,6,0"/>
+                                            <Button Grid.Column="2" Content="Add" Command="{Binding AddHotkeyPhraseCommand}" Classes="btn-primary" Cursor="Hand"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <ListBox ItemsSource="{Binding HotkeyEntries}" Height="180" Classes="data-list">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="entities:HotkeyEntry">
+                                            <Grid ColumnDefinitions="120,*,Auto">
+                                                <TextBlock Text="{Binding Hotkey}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Text}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                <Button Grid.Column="2" Content="✕" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteHotkeyPhraseCommand}"
+                                                        CommandParameter="{Binding Id}" Classes="btn-icon btn-delete" ToolTip.Tip="Delete"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+
+
+                            <!-- History Tab -->
+                            <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.History}}">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="Synthesis History" Classes="section-title"/>
+                                    <Button Grid.Column="1" Content="Clear All" Command="{Binding ClearHistoryCommand}" Classes="btn-danger" Cursor="Hand"/>
+                                </Grid>
+                                <ListBox ItemsSource="{Binding HistoryEntries}" Height="240" Classes="data-list">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="entities:HistoryEntry">
+                                            <Grid ColumnDefinitions="*,Auto,Auto">
+                                                <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                <Button Grid.Column="1" Content="▶" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).PlayHistoryItemCommand}" CommandParameter="{Binding Id}" Classes="btn-icon" Margin="4,0" ToolTip.Tip="Play"/>
+                                                <Button Grid.Column="2" Content="✕" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteHistoryItemCommand}" CommandParameter="{Binding Id}" Classes="btn-icon btn-delete" ToolTip.Tip="Delete"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Panel>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+        </Border>
+    </Panel>
+
+    <!-- Global Style Classes -->
+    <Window.Styles>
+        <Style Selector="Border.main-card">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="CornerRadius" Value="20"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Border.card-section">
+            <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+        <Style Selector="TextBlock.section-title">
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.section-desc">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="Margin" Value="0,-10,0,10"/>
+        </Style>
+        <Style Selector="TextBlock.field-label">
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        </Style>
+        <Style Selector="Button.btn-primary">
+            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.btn-primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}"/>
+        </Style>
+        <Style Selector="Button.btn-danger">
+            <Setter Property="Background" Value="{StaticResource DangerBgBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.btn-icon">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.btn-delete">
+            <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+        </Style>
+        <Style Selector="Button.nav-item">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.nav-item:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource HoverBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="Button.nav-item.active /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.nav-item.active">
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="ListBox.data-list">
+            <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Button.hotkey-btn">
+            <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.hotkey-btn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource HoverBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+        </Style>
+        <Style Selector="Button.hotkey-btn.recording">
+            <Setter Property="Background" Value="{StaticResource DangerBgBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+    </Window.Styles>
+</Window>

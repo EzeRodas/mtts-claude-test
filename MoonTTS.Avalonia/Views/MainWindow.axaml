@@ -1,0 +1,360 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MoonTTS.Avalonia.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="770" d:DesignHeight="50"
+        x:Class="MoonTTS.Avalonia.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/icon.ico"
+        Title="Moon_TTS"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        WindowDecorations="None"
+        WindowStartupLocation="Manual"
+        Padding="1"
+        CanResize="False"
+        CornerRadius="100"
+        >
+        
+    <!-- Makes the window hide on pressing escape with the app focused -->
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Escape" Command="{Binding CloseAppCommand}"/>
+    </Window.KeyBindings>
+    <Design.DataContext>
+        <!-- This only sets the DataContext for the previewer in an IDE,
+             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
+        <vm:MainViewModel />
+    </Design.DataContext>
+
+    <StackPanel 
+        Width="768" 
+        Height="48" 
+        Spacing="12" 
+        Orientation="Horizontal"
+        >
+        
+        <!-- About button -->
+        <HyperlinkButton
+            NavigateUri="https://github.com/EzeRodas/Moon-TTS-CS"
+            ToolTip.Tip="About"
+            Width="48" 
+            Height="48" 
+            CornerRadius="100"
+            Background="Transparent"
+            Cursor="Hand"
+            Classes="AboutBtn"
+            >
+            <Image 
+                Source="../Assets/icon.png" 
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Height="48"
+                Width="48"
+                >
+                <Image.Clip>
+                    <EllipseGeometry RadiusX="23.8" RadiusY="23.8" Center="24,24"/>
+                </Image.Clip>
+            </Image>
+        </HyperlinkButton>
+        
+        <!-- Drag Button -->
+        <Border 
+            Width="48" 
+            Height="48" 
+            CornerRadius="48" 
+            Cursor="Hand"
+            x:Name="DragBtn"
+            PointerPressed="DragButton_PointerPressed"
+            PointerReleased="DragButton_PointerReleased"
+            >
+            <Path
+                Data="M18 9l3 3l-3 3 M15 12h6 M6 9l-3 3l3 3 M3 12h6 M9 18l3 3l3 -3 M12 15v6 M15 6l-3 -3l-3 3 M12 3v6"
+                Width="28"
+                Height="28"
+                StrokeLineCap="Round"
+                StrokeJoin="Round"
+                Stretch="Fill"
+                Stroke="#333"
+                StrokeThickness="3"
+            />
+        </Border>
+        
+        <!-- Settings Button -->
+        <Button 
+            Width="48" 
+            Height="48" 
+            CornerRadius="100" 
+            Background="White"
+            HorizontalContentAlignment="Center"
+            VerticalContentAlignment="Center"
+            Cursor="Hand"
+            Command="{Binding ToggleSettingsCommand}"
+            >
+            
+            <Path
+                Data="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065 M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"
+                Width="28"
+                Height="28"
+                StrokeLineCap="Round"
+                StrokeJoin="Round"
+                Stretch="Fill"
+                Stroke="#333"
+                StrokeThickness="3"
+            />
+        </Button>
+        
+        <!-- Input Box -->
+        <Grid
+            Width="492"
+            >
+            <Border
+                BorderBrush="Transparent"
+                BorderThickness="0"
+                >
+                <!-- TextBox -->
+                <TextBox 
+                    Text="{Binding TextToSpeak, Mode=TwoWay}"
+                    x:Name="InputBox"
+                    PlaceholderText="Insert text to synthesize" 
+                    CornerRadius="100" 
+                    Padding="20,0,20,0"
+                    FontSize="20" 
+                    Width="492"
+                    PlaceholderForeground="#333"
+                    VerticalContentAlignment="Center"
+                    BorderThickness="0"
+                    Background="White"
+                    Foreground="#333"
+                    CaretBrush="#333"
+                >
+                    <TextBox.KeyBindings>
+                        <KeyBinding Gesture="Enter" Command="{Binding PlayCommand}"/>
+                    </TextBox.KeyBindings>
+                </TextBox>
+            </Border>
+            <StackPanel
+                Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="4"
+                ZIndex="2"
+                IsVisible="{Binding IsSynthesizing}"
+                >
+                <!-- Pause / Resume Button -->
+                <Button 
+                    Width="44" 
+                    Height="44" 
+                    Margin="2"
+                    CornerRadius="48" 
+                    Background="White"
+                    HorizontalAlignment="Right"
+                    HorizontalContentAlignment="Center"
+                    VerticalContentAlignment="Center"
+                    x:Name="PauseBtn"
+                    Command="{Binding PauseResumeCommand}"
+                    Cursor="Hand"
+                >
+                    <StackPanel>
+                        <Path
+                            Data="M9 4h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2z M17 4h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2z"
+                            Width="20"
+                            Height="20"
+                            StrokeLineCap="Round"
+                            StrokeJoin="Round"
+                            Stretch="Fill"
+                            Fill="#333"
+                            Stroke="Transparent"
+                            StrokeThickness="3"
+                            IsVisible="{Binding !IsPaused}"
+                        />
+                        <Path
+                            Data="M6 4v16a1 1 0 0 0 1.524 .852l13 -8a1 1 0 0 0 0 -1.704l-13 -8a1 1 0 0 0 -1.524 .852z"
+                            Width="20"
+                            Height="20"
+                            StrokeLineCap="Round"
+                            StrokeJoin="Round"
+                            Stretch="Fill"
+                            Fill="#333"
+                            Stroke="Transparent"
+                            StrokeThickness="3"
+                            IsVisible="{Binding IsPaused}"
+                        />
+                    </StackPanel>
+                </Button>
+                <!-- Stop Button -->
+                <Button 
+                    Width="44" 
+                    Height="44" 
+                    Margin="2"
+                    CornerRadius="48" 
+                    HorizontalAlignment="Right"
+                    HorizontalContentAlignment="Center"
+                    VerticalContentAlignment="Center"
+                    Classes="StopBtn"
+                    Cursor="Hand"
+                    Background="#f66"
+                    Command="{Binding StopCommand}"
+                >
+                    <Path
+                        Data="M17 4h-10a3 3 0 0 0 -3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3 -3v-10a3 3 0 0 0 -3 -3z"
+                        Width="20"
+                        Height="20"
+                        StrokeLineCap="Round"
+                        StrokeJoin="Round"
+                        Stretch="Fill"
+                        Fill="#333"
+                        Stroke="Transparent"
+                        StrokeThickness="3"
+                    />
+                </Button>
+            </StackPanel>
+        </Grid>
+        
+        
+        <!-- Send Button -->
+        <Button 
+            Width="48" 
+            Height="48" 
+            CornerRadius="48" 
+            Background="White"
+            HorizontalContentAlignment="Center"
+            VerticalContentAlignment="Center"
+            Cursor="Hand"
+            Command="{Binding PlayCommand}"
+        >
+            <Path
+                Data="M4 13a8 8 0 0 1 7 7a6 6 0 0 0 3 -5a9 9 0 0 0 6 -8a3 3 0 0 0 -3 -3a9 9 0 0 0 -8 6a6 6 0 0 0 -5 3 M7 14a6 6 0 0 0 -3 6a6 6 0 0 0 6 -3 M14 9a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
+                Width="24"
+                Height="24"
+                StrokeLineCap="Round"
+                StrokeJoin="Round"
+                Stretch="Fill"
+                Stroke="#333"
+                StrokeThickness="3"
+            />
+        </Button>
+        
+        <!-- Close Button -->
+        <Button 
+            Width="24" 
+            Height="24" 
+            CornerRadius="48" 
+            Background="White"
+            VerticalAlignment="Top"
+            HorizontalAlignment="Left"
+            HorizontalContentAlignment="Center"
+            VerticalContentAlignment="Center"
+            Cursor="Hand"
+            Classes="CloseBtn"
+            Command="{Binding CloseAppCommand}"
+        >
+            <Path
+                Data="M18 6l-12 12 M6 6l12 12"
+                Width="8"
+                Height="8"
+                StrokeLineCap="Round"
+                StrokeJoin="Round"
+                Stretch="Fill"
+                Stroke="#333"
+                StrokeThickness="3"
+                
+            />
+        </Button>
+    </StackPanel>
+    <Window.Styles>
+        
+        <!-- Button Styling -->
+        
+        <Style Selector="Button /template/ ContentPresenter">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.1"/>
+                </Transitions>
+            </Setter>
+        </Style>
+
+        <Style Selector="Button:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#ddd"/>
+        </Style>
+
+        <Style Selector="Button:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#bbb"/>
+        </Style>
+        
+        <!-- About Button -->
+        
+        <Style Selector="Button.AboutBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+
+        <Style Selector="Button.AboutBtn:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        
+        <!-- Drag Button Styling -->
+        
+        <Style Selector="Border#DragBtn">
+            <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
+            <Setter Property="RenderTransform" Value="scale(1)"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.1"/>
+                    <TransformOperationsTransition Property="RenderTransform"
+                                                   Duration="0:0:0.1"
+                                                   Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
+        </Style>
+
+        <Style Selector="Border#DragBtn:pointerover">
+            <Setter Property="Background" Value="#ddd"/>
+        </Style>
+        
+        <Style Selector="Border#DragBtn.Pressed">
+            <Setter Property="RenderTransform" Value="scale(0.98)"/>
+            <Setter Property="Background" Value="#bbb"/>
+        </Style>
+        
+        <!-- Stop Button -->
+
+        <Style Selector="Button.CloseBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#d55"/>
+        </Style>
+
+        
+        <Style Selector="Button.CloseBtn:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#b44"/>
+        </Style>
+        
+        <!-- Close Button -->
+        
+        <Style Selector="Button.StopBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#d55"/>
+        </Style>
+
+        <Style Selector="Button.StopBtn:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#b44"/>
+        </Style>
+        
+        <!-- Textbox Styling -->
+        
+        <Style Selector="TextBox">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="Gray"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+
+        <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+    </Window.Styles>
+</Window>
+

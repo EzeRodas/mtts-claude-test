@@ -1,0 +1,28 @@
+using System.Text.Json.Serialization;
+using MoonTTS.Domain.Audio;
+using MoonTTS.Domain.Entities;
+using MoonTTS.Infrastructure.Daemon.DTOs;
+
+namespace MoonTTS.Infrastructure.Persistence;
+
+/* Source generator context for AOT serialization */
+
+/* Main configs */
+[JsonSerializable(typeof(AppConfig))]
+[JsonSerializable(typeof(List<DictionaryEntry>))]
+[JsonSerializable(typeof(ProfileDataStore))]
+[JsonSerializable(typeof(List<HotkeyEntry>))]
+[JsonSerializable(typeof(List<HistoryEntry>))]
+
+/* Daemon IPC */
+[JsonSerializable(typeof(DaemonRequest))]
+[JsonSerializable(typeof(DaemonResponse))]
+[JsonSerializable(typeof(AudioFormat))]
+
+[JsonSourceGenerationOptions(WriteIndented = true)]
+
+/* Engine specifics */
+[JsonSerializable(typeof(KokoroEngineConfig))]
+public partial class AppJsonContext : JsonSerializerContext
+{
+}

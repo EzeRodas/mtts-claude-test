@@ -1,0 +1,11 @@
+<Project>
+    <Target Name="CopyVoicesToPublish" AfterTargets="Publish" Condition="'$(OutputType)' != 'Library'">
+        <ItemGroup>
+            <VoiceFiles Include="$(TargetDir)voices\**\*" />
+        </ItemGroup>
+        <Copy SourceFiles="@(VoiceFiles)"
+              DestinationFolder="$(PublishDir)voices\%(RecursiveDir)"
+              SkipUnchangedFiles="true"
+              Condition="Exists('$(TargetDir)voices')"/>
+    </Target>
+</Project>
