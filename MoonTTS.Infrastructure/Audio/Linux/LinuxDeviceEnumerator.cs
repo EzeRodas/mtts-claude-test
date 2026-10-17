@@ -60,6 +60,8 @@ public class LinuxDeviceEnumerator
         return sinks;
     }
 
+    /* Parses the Audio "Sinks:" section of `wpctl status` (e.g. " │  *   48. Built-in Audio  [vol: 0.40]")
+       into node id (usable as pw-play --target) and description */
     private static List<LinuxSink> ParseWpctlSinks(string output)
     {
         var sinks = new List<LinuxSink>();
@@ -72,7 +74,7 @@ public class LinuxDeviceEnumerator
         {
             var match = Regex.Match(
                 line,
-                @"(?:[*\s]*?)\d+\.\s+(.*?)(?:\s+\[vol|$)");
+                @"(?:[*\s]*?)(\d+)\.\s+(.*?)(?:\s+\[vol|$)");
             if (match.Success)
             {
                 string id = match.Groups[1].Value.Trim();

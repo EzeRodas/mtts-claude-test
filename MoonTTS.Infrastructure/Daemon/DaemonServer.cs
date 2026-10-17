@@ -16,6 +16,7 @@ namespace MoonTTS.Infrastructure.Daemon;
             DictionaryManager dictionaryManager, 
             SettingsManager settingsManager)
         - RunAsync(CancellationToken cancellationToken) : Task
+        - CreatePipe(bool firstInstance) : NamedPipeServerStream
         - HandleClientAsync(Stream stream, CancellationToken cancellationToken) : Task
         - HandleSynthesizeAsync(Stream stream, DaemonRequest request, CancellationToken cancellationToken) : Task 
 */
@@ -23,7 +24,16 @@ namespace MoonTTS.Infrastructure.Daemon;
 public class DaemonServer
 {
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(5);
-    
+
+    /* How often a wait for clients is interrupted to check whether the daemon must stop */
+    private static readonly TimeSpan ConnectionPollInterval = TimeSpan.FromSeconds(2);
+
+    /* Pause before retrying when the pipe cannot be created */
+    private static readonly TimeSpan PipeRetryDelay = TimeSpan.FromSeconds(1);
+
+    /* One instance serving a client plus one listening for the next */
+    private const int MaxPipeInstances = 2;
+
     private readonly ITtsEngineProvider _engineProvider;
     private readonly DictionaryManager _dictionaryManager;
     private readonly SettingsManager _settingsManager;
@@ -41,6 +51,7 @@ public class DaemonServer
         _settingsManager = settingsManager;
     }
 
+    /* Keeps the model loaded and serves clients until killed, idle for IdleTimeout or cancelled */
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         _lastActivityTime = DateTime.UtcNow;
@@ -61,40 +72,82 @@ public class DaemonServer
             }
         }, timerCts.Token);
 
-        while (!cancellationToken.IsCancellationRequested && !_stopRequested)
+        /* An instance is always listening, also while a client is served, so a client connecting right after
+           another one (the CLI probes the pipe, then sends its request) is queued instead of reset */
+        NamedPipeServerStream? listening = null;
+        try
         {
-            try
+            while (!cancellationToken.IsCancellationRequested && !_stopRequested)
             {
-                await using var serverPipe = new NamedPipeServerStream(
-                    DaemonIpcProtocol.PipeName,
-                    PipeDirection.InOut,
-                    1,
-                    PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous);
-
-                /* Waits for client connection with short timeout to periodically check _stopRequested */
-                using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                waitCts.CancelAfter(TimeSpan.FromSeconds(2));
-
                 try
                 {
-                    await serverPipe.WaitForConnectionAsync(waitCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    continue;
-                }
+                    listening ??= CreatePipe(firstInstance: true);
 
-                await HandleClientAsync(serverPipe, cancellationToken);
+                    /* Waits for client connection with short timeout to periodically check _stopRequested */
+                    using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    waitCts.CancelAfter(ConnectionPollInterval);
+
+                    try
+                    {
+                        await listening.WaitForConnectionAsync(waitCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        /* The expired instance is replaced before it is released, so the pipe never stops listening */
+                        var expired = listening;
+                        listening = null;
+                        await using (expired.ConfigureAwait(false))
+                        {
+                            listening = CreatePipe(firstInstance: false);
+                        }
+                        continue;
+                    }
+
+                    var connected = listening;
+                    listening = null;
+                    await using (connected.ConfigureAwait(false))
+                    {
+                        listening = CreatePipe(firstInstance: false);
+                        await HandleClientAsync(connected, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception) when (_stopRequested || cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex) when (listening == null)
+                {
+                    /* The pipe could not be created (e.g. another daemon owns it): retries after a pause instead of
+                       spinning, until the idle timeout, a cancellation or the pipe becoming available */
+                    Console.Error.WriteLine($"[DaemonServer] Cannot listen on '{DaemonIpcProtocol.PipeName}': {ex.Message}");
+                    try
+                    {
+                        await Task.Delay(PipeRetryDelay, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+                catch { /* Transient Pipe error */ }
             }
-            catch (Exception) when (_stopRequested || cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch { /* Transient Pipe error */ }
         }
-        timerCts.Cancel();
+        finally
+        {
+            if (listening != null)
+                await listening.DisposeAsync().ConfigureAwait(false);
+            timerCts.Cancel();
+        }
     }
+
+    /* Creates one instance of the daemon pipe. The first instance fails while another daemon owns the name */
+    private static NamedPipeServerStream CreatePipe(bool firstInstance) =>
+        new(
+            DaemonIpcProtocol.PipeName,
+            PipeDirection.InOut,
+            MaxPipeInstances,
+            PipeTransmissionMode.Byte,
+            firstInstance ? PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance : PipeOptions.Asynchronous);
 
     /* Handle an individual client connection using binary protocol framing */
     private async Task HandleClientAsync(Stream stream, CancellationToken cancellationToken)

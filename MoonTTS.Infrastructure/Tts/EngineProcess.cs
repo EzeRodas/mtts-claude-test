@@ -48,6 +48,10 @@ public sealed class EngineProcess : IDisposable
     private readonly SemaphoreSlim _exchangeLock = new(1, 1);
     private bool _disposed;
 
+    /* Set once stdout reached its end or stdin stopped accepting writes. The OS reports a child's exit
+       asynchronously, so without this a crashed worker could still look alive to the next request */
+    private volatile bool _channelClosed;
+
     /* Wraps an already started worker */
     private EngineProcess(Process process, string engineId)
     {
@@ -57,11 +61,13 @@ public sealed class EngineProcess : IDisposable
         _output = process.StandardOutput.BaseStream;
     }
 
-    /* True once the worker exited (crash, Shutdown or killed) */
+    /* True once the worker exited (crash, Shutdown or killed) or its channel closed */
     public bool HasExited
     {
         get
         {
+            if (_channelClosed)
+                return true;
             try { return _process.HasExited; }
             catch (InvalidOperationException) { return true; }
         }
@@ -256,19 +262,25 @@ public sealed class EngineProcess : IDisposable
         }
         catch (IOException ex)
         {
+            _channelClosed = true;
             throw new EngineWorkerException($"The '{_engineId}' engine worker is not accepting requests.", innerException: ex);
         }
     }
 
-    /* Reads a frame from the worker's stdout, mapping a broken channel to EngineWorkerException */
+    /* Reads a frame from the worker's stdout, mapping a broken channel to EngineWorkerException.
+       A clean end of stream (null) marks the channel as closed */
     private async Task<EngineFrame?> ReadFrameAsync(CancellationToken cancellationToken)
     {
         try
         {
-            return await EngineIpcProtocol.ReadFrameAsync(_output, cancellationToken).ConfigureAwait(false);
+            var frame = await EngineIpcProtocol.ReadFrameAsync(_output, cancellationToken).ConfigureAwait(false);
+            if (frame == null)
+                _channelClosed = true;
+            return frame;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException)
         {
+            _channelClosed = true;
             Kill();
             throw new EngineWorkerException($"Lost the channel to the '{_engineId}' engine worker: {ex.Message}", innerException: ex);
         }

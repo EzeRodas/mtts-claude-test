@@ -1,44 +1,27 @@
-using System.Runtime.InteropServices;
 using MoonTTS.Domain.Interfaces;
 using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.Infrastructure.OS.Linux.X11;
 
 /* File Structure:
+        - X11ShortcutHook()
+        - X11ShortcutHook(IX11Api x11)
         - InitializeAsync() : Task
-        - RegisterShortcutAsync(string toggleShortcut, Dictionary<string,object> phraseShortcuts) : Task
-        - RegisterSingleShortcut(string id, string comboString) : void
+        - RegisterShortcutAsync(ShortcutCombo? toggleShortcut, Dictionary<string,ShortcutCombo> phraseShortcuts) : Task
+        - RegisterSingleShortcut(string id, ShortcutCombo combo) : void
         - EventLoop() : void
         - Dispose() : void
-        - LibX11
-            - XOpenDisplay(string? display_name) : nint
-            - XDefaultRootWindow(nint display) : ulong
-            - XStringToKeysym(string string_name) : nint
-            - XKeysymToKeycode(nint display, nint keysym) : uint
-            - XGrabKey(
-                nint display, 
-                int keycode, 
-                uint modifiers, 
-                ulong grab_window, 
-                bool owner_events, 
-                int pointer_mode, 
-                int keyboard_mode) : int
-            - XUngrabKey(nint display, int keycode, uint modifiers, ulong grab_window) : int
-            - XPending(nint display) : int
-            - XNextEvent(nint display, ref XEvent event_return) : int
-            - XCloseDisplay(nint display) : int
-            - XKeyEvent
-            - XEvent
 */
 
 /* Shortcut hook for Linux X11 platform */
 
 public class X11ShortcutHook : IGlobalShortcutHook
 {
+    private readonly IX11Api _x11;
     private IntPtr _display;
     private ulong _rootWindow;
     private Thread? _eventThread;
-    private bool _isRunning;
+    private volatile bool _isRunning;
     private DateTime _lastTriggerTime = DateTime.MinValue;
 
     /* Maps the exact (ModifierState, KeyCode) -> Shortcut ID */
@@ -46,16 +29,27 @@ public class X11ShortcutHook : IGlobalShortcutHook
 
     public event Action<string>? OnShortcutTriggered;
 
+    /* Creates the hook over the native libX11 */
+    public X11ShortcutHook() : this(new X11Api())
+    {
+    }
+
+    /* Creates the hook over the given X11 API (the native libX11, or a stand-in X server) */
+    public X11ShortcutHook(IX11Api x11)
+    {
+        _x11 = x11;
+    }
+
     /* Called once when the app starts */
     public Task InitializeAsync()
     {
         /* Establishes connection with the X11 server */
-        _display = LibX11.XOpenDisplay(null);
+        _display = _x11.XOpenDisplay(null);
         if (_display == IntPtr.Zero)
             throw new InvalidOperationException("Failed to open x11 Display");
         
         /* Get the desktop root background window to listen globally */
-        _rootWindow = LibX11.XDefaultRootWindow(_display);
+        _rootWindow = _x11.XDefaultRootWindow(_display);
         
         /* Starts the background thread to listen for X11 events */
         _isRunning = true;
@@ -71,7 +65,7 @@ public class X11ShortcutHook : IGlobalShortcutHook
         if (_display == IntPtr.Zero) return Task.CompletedTask;
         
         /* Ungrabs all previous keys in case the user changed them in settings */
-        LibX11.XUngrabKey(_display, 0, LibX11.AnyModifier, _rootWindow);
+        _x11.XUngrabKey(_display, 0, LibX11.AnyModifier, _rootWindow);
         _registeredCombos.Clear();
 
         if (toggleShortcut != null) RegisterSingleShortcut("toggle_app", toggleShortcut);
@@ -97,10 +91,10 @@ public class X11ShortcutHook : IGlobalShortcutHook
         
         /* Asks X11 to convert the string into a harware KeyCode */
         /* As stated in ShortcutCombo, X11 demands lowercase */
-        IntPtr keysym = LibX11.XStringToKeysym(combo.MainKey.ToLowerInvariant());
+        IntPtr keysym = _x11.XStringToKeysym(combo.MainKey.ToLowerInvariant());
         if (keysym == IntPtr.Zero) return;
         
-        uint keycode = LibX11.XKeysymToKeycode(_display, keysym);
+        uint keycode = _x11.XKeysymToKeycode(_display, keysym);
         if (keycode == 0) return;
         
         /* Safety net in case user has NumLock disabled */
@@ -117,7 +111,7 @@ public class X11ShortcutHook : IGlobalShortcutHook
             uint finalModifiers = modifiers | ignore;
             
             /* XGrabKey asks the OS to send only to it said keystroke */
-            LibX11.XGrabKey(
+            _x11.XGrabKey(
                 _display,
                 (int)keycode,
                 finalModifiers,
@@ -138,9 +132,9 @@ public class X11ShortcutHook : IGlobalShortcutHook
         while (_isRunning)
         {
             /* XPending checks if there are events waiting, if not, sleeps to avoid cpu overload */
-            while (LibX11.XPending(_display) > 0)
+            while (_x11.XPending(_display) > 0)
             {
-                LibX11.XNextEvent(_display, ref xevent);
+                _x11.XNextEvent(_display, ref xevent);
 
                 if (xevent.type == LibX11.KeyPress)
                 {
@@ -171,94 +165,17 @@ public class X11ShortcutHook : IGlobalShortcutHook
     {
         _isRunning = false;
 
+        /* Waits for the event loop to stop using the display before closing it (skipped when a shortcut handler
+           disposes the hook from the event thread itself) */
+        if (_eventThread != null && _eventThread != Thread.CurrentThread)
+            _eventThread.Join();
+        _eventThread = null;
+
         if (_display != IntPtr.Zero)
         {
-            LibX11.XUngrabKey(_display, 0, LibX11.AnyModifier, _rootWindow);
-            LibX11.XCloseDisplay(_display);
+            _x11.XUngrabKey(_display, 0, LibX11.AnyModifier, _rootWindow);
+            _x11.XCloseDisplay(_display);
             _display = IntPtr.Zero;
-        }
-    }
-
-    /* Native C code that x11 expects to talk to */
-    /* Here, https://xorg.freedesktop.org/releases/current/doc/libX11/libX11/libX11.html , Good luck :) */
-    
-    private static class LibX11
-    {
-        private const string LibName = "libX11.so.6";
-
-        public const int KeyPress = 2;
-        public const int GrabModeAsync = 1;
-        public const uint AnyModifier = 0x8000;
-        public const uint ShiftMask = 1 << 0;
-        public const uint LockMask = 1 << 1;
-        public const uint ControlMask = 1 << 2;
-        public const uint Mod1Mask = 1 << 3; /* Alt */
-        public const uint Mod2Mask = 1 << 4; /* NumLock */
-        public const uint Mod4Mask = 1 << 6; /* Super/Windows/Command */
-
-        [DllImport(LibName)]
-        public static extern IntPtr XOpenDisplay(string? display_name);
-
-        [DllImport(LibName)]
-        public static extern ulong XDefaultRootWindow(IntPtr display);
-
-        [DllImport(LibName)]
-        public static extern IntPtr XStringToKeysym(string string_name);
-        
-        [DllImport(LibName)]
-        public static extern uint XKeysymToKeycode(IntPtr display, IntPtr keysym);
-
-        [DllImport(LibName)]
-        public static extern int XGrabKey(
-            IntPtr display,
-            int keycode,
-            uint modifiers,
-            ulong grab_window,
-            bool owner_events,
-            int pointer_mode,
-            int keyboard_mode);
-        
-        [DllImport(LibName)]
-        public static extern int XUngrabKey(
-            IntPtr display, 
-            int keycode, 
-            uint modifiers, 
-            ulong grab_window);
-
-        [DllImport(LibName)]
-        public static extern int XPending(IntPtr display);
-        
-        [DllImport(LibName)]
-        public static extern int XNextEvent(IntPtr display, ref XEvent event_return);
-        
-        [DllImport(LibName)]
-        public static extern int XCloseDisplay(IntPtr display);
-        
-        /* Memory mapping of the C struct "XKeyEvent" from "/usr/include/X11/Xlib.h" */
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct XKeyEvent
-        {
-            public int type;
-            public ulong serial;
-            public int send_event; /* Boolean in C is 4 bytes */
-            public IntPtr display; /* Pointers in C are 8 bytes */
-            public ulong window;   /* "Window" (XID) is 8 bytes */
-            public ulong root;
-            public ulong subwindow;
-            public ulong time;     /* "Time" is 8 bytes */
-            public int x, y;
-            public int x_root, y_root;
-            public uint state;     /* Modifiers Mask */
-            public uint keycode;   /* HArdware keycode */
-            public int same_screen;
-        }
-
-        [StructLayout(LayoutKind.Explicit, Size = 192)]
-        public struct XEvent
-        {
-            [FieldOffset(0)] public int type;
-            [FieldOffset(0)] public XKeyEvent xkey;
         }
     }
 }

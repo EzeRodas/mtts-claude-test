@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Scriptable engine worker speaking the IPC protocol, used to test the engine host against a real process -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../MoonTTS.Engine.Protocol/MoonTTS.Engine.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

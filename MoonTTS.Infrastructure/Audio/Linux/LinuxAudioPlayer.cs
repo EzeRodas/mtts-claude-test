@@ -153,10 +153,12 @@ public class LinuxAudioPlayer : IAudioPlayer
         Stop();
 
         /* Sets up the linked cts for this session */
+        CancellationTokenSource sessionCts;
         CancellationToken linkedToken;
         lock (_processLock)
         {
             _playbackCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            sessionCts = _playbackCts;
             linkedToken = _playbackCts.Token;
             _isPaused = false;
         }
@@ -195,7 +197,13 @@ public class LinuxAudioPlayer : IAudioPlayer
         }
         finally
         {
-            Stop();
+            /* Only tears down its own session: when a newer stream replaced it, that stream already stopped this
+               one and now owns the active processes */
+            lock (_processLock)
+            {
+                if (ReferenceEquals(_playbackCts, sessionCts))
+                    Stop();
+            }
         }
     }
 

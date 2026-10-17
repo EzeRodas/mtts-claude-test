@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/Support/">
+    <Project Path="MoonTTS.Tests.Common/MoonTTS.Tests.Common.csproj" />
+    <Project Path="MoonTTS.Tests.DummyEngine/MoonTTS.Tests.DummyEngine.csproj" />
+  </Folder>
+  <Project Path="MoonTTS.Domain.Tests/MoonTTS.Domain.Tests.csproj" />
+  <Project Path="MoonTTS.Engine.Protocol.Tests/MoonTTS.Engine.Protocol.Tests.csproj" />
+  <Project Path="MoonTTS.Core.Tests/MoonTTS.Core.Tests.csproj" />
+  <Project Path="MoonTTS.Infrastructure.Tests/MoonTTS.Infrastructure.Tests.csproj" />
+  <Project Path="MoonTTS.Avalonia.Tests/MoonTTS.Avalonia.Tests.csproj" />
+  <Project Path="MoonTTS.CLI.Tests/MoonTTS.CLI.Tests.csproj" />
+</Solution>

@@ -202,6 +202,9 @@ public class SpeechPipeline : ISpeechPipeline
             {
                 if (_activeCts == sessionCts)
                 {
+                    /* Ends synthesis still running for this session (e.g. a producer blocked on the channel after the
+                       player failed without draining it). A superseded or stopped session was already cancelled */
+                    sessionCts.Cancel();
                     _activeCts = null;
                     IsSpeaking = false;
                     IsPaused = false;

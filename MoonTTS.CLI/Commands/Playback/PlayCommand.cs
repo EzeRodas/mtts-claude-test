@@ -79,7 +79,7 @@ public static class PlayCommand
         SettingsManager settingsManager,
         CancellationToken cancellationToken)
     {
-        Terminal.Info($"Sunthesizing: {text}");
+        Terminal.Info($"Synthesizing: {text}");
         
         /* Checks if daemon active */
         if (await daemonClient.IsRunningAsync(150))

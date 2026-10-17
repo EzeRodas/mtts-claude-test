@@ -1,5 +1,6 @@
 using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
+using MoonTTS.CLI.Utilities;
 using MoonTTS.Core.Services;
 using MoonTTS.Infrastructure.Audio.Linux;
 
@@ -15,7 +16,13 @@ public class VirtualMicCreateCommand
             if (LinuxVirtualMicService.Exists())
                 return 1;
 
-            LinuxVirtualMicService.EnsureCreated();
+            /* The sink can fail to be created (no pactl / pw-cli, module load refused); report it instead of exiting 0 */
+            var createResult = LinuxVirtualMicService.EnsureCreated();
+            if (createResult.IsFailure)
+            {
+                Terminal.Error($"Error: {createResult.ErrorMessage}");
+                return 1;
+            }
             return 0;
         });
         

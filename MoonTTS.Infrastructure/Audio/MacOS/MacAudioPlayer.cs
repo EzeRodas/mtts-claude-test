@@ -1,5 +1,6 @@
 #if !WINDOWS
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using MoonTTS.Core.Utilities;
 using MoonTTS.Domain.Audio;
 using MoonTTS.Domain.Common;
@@ -10,12 +11,14 @@ namespace MoonTTS.Infrastructure.Audio.MacOS;
 
 /* File Structure:
         - MacDevice(string Uid, string Name)
+        - MacAudioPlayer()
+        - MacAudioPlayer(ICoreAudioApi coreAudio)
         - GetAvailableDevices() : Result<List<AudioDeviceInfo>>
         - SetOutputDevices(string? primaryDeviceId, string? secondaryMonitorDeviceId) : Result
         - SetVolume(int? primaryVolume, int? monitorVolume) : void
         - PlayPcmAsync(ReadOnlyMemory<byte> pcmBytes, AudioFormat format, CancellationToken cancellationToken) : Task<Result>
         - StreamPcmAsync(IAsyncEnumerable<ReadOnlyMemory<byte>> pcmChunks, AudioFormat format, CancellationToken cancellationToken) : Task<Result>
-        - PlayQueueStreamAsync(byte[] pcmBytes, string? deviceUid, float volume, bool isPrimary, CancellationToken token) : Task<Result>
+        - PlayQueueStreamAsync(byte[] pcmBytes, AudioFormat format, string? deviceUid, float volume, bool isPrimary, CancellationToken token) : Task<Result>
         - Pause() : void
         - Resume() : void
         - Stop() : void
@@ -25,6 +28,9 @@ namespace MoonTTS.Infrastructure.Audio.MacOS;
 
 public class MacAudioPlayer : IAudioPlayer
 {
+    /* Native CoreAudio / AudioToolbox / CoreFoundation surface (the real frameworks in the app, a dummy in tests) */
+    private readonly ICoreAudioApi _api;
+
     private string? _primaryDeviceId = "-1";
     private string? _monitorDeviceId = null;
     
@@ -39,9 +45,22 @@ public class MacAudioPlayer : IAudioPlayer
     private readonly Lock _processLock = new();
 
     public record MacDevice(string Uid, string Name);
+
+    /* Plays through the real macOS frameworks */
+    [SupportedOSPlatform("macos")]
+    public MacAudioPlayer() : this(new MacCoreAudioApi())
+    {
+    }
+
+    /* Plays through the given CoreAudio API implementation */
+    public MacAudioPlayer(ICoreAudioApi coreAudio)
+    {
+        _api = coreAudio;
+    }
     
     /* Device discovery */
 
+    /* Lists the system default device ("-1") followed by every output device, numbered from 1 */
     public Result<List<AudioDeviceInfo>> GetAvailableDevices()
     {
         var devices = new List<AudioDeviceInfo>()
@@ -72,6 +91,7 @@ public class MacAudioPlayer : IAudioPlayer
     
     /* Configuration */
 
+    /* Selects the primary and monitor devices (KeepCurrent keeps one, null / blank disables it) */
     public Result SetOutputDevices(
         string? primaryDeviceId = IAudioPlayer.KeepCurrent, 
         string? secondaryMonitorDeviceId = IAudioPlayer.KeepCurrent)
@@ -94,6 +114,7 @@ public class MacAudioPlayer : IAudioPlayer
         return Result.Success();
     }
 
+    /* Sets the volumes (0-100, clamped); active queues are updated live */
     public void SetVolume(int? primaryVolume = null, int? monitorVolume = null)
     {
         lock (_processLock)
@@ -103,7 +124,7 @@ public class MacAudioPlayer : IAudioPlayer
                 _primaryVolume = Math.Clamp(primaryVolume.Value, 0, 100) / 100.0f;
                 /* Live mid-playback volume update on active CoreAudio queue */
                 if (_primaryQueue != IntPtr.Zero)
-                    MacCoreAudioApi.AudioQueueSetParameter(_primaryQueue, MacCoreAudioApi.kAudioQueueParam_Volume, _primaryVolume);
+                    _api.AudioQueueSetParameter(_primaryQueue, ICoreAudioApi.kAudioQueueParam_Volume, _primaryVolume);
             }
             
             if (monitorVolume.HasValue)
@@ -111,9 +132,9 @@ public class MacAudioPlayer : IAudioPlayer
                 _monitorVolume = Math.Clamp(monitorVolume.Value, 0, 100) / 100.0f;
                 /* Live mid-playback volume update on active CoreAudio queue */
                 if (_monitorQueue != IntPtr.Zero)
-                    MacCoreAudioApi.AudioQueueSetParameter(
+                    _api.AudioQueueSetParameter(
                         _monitorQueue, 
-                        MacCoreAudioApi.kAudioQueueParam_Volume,
+                        ICoreAudioApi.kAudioQueueParam_Volume,
                         _monitorVolume);
             }
             
@@ -122,6 +143,8 @@ public class MacAudioPlayer : IAudioPlayer
     }
     
     /* Playback */
+
+    /* Plays one PCM buffer on the primary and monitor devices at the same time, completing when both finish */
     public async Task<Result> PlayPcmAsync(ReadOnlyMemory<byte> pcmBytes, AudioFormat format, CancellationToken cancellationToken = default)
     {
         string? primaryId;
@@ -163,18 +186,23 @@ public class MacAudioPlayer : IAudioPlayer
             if (playPrimary)
             {
                 string? targetUid = ResolveDeviceUid(primaryId);
-                tasks.Add(PlayQueueStreamAsync(rawArray, targetUid, pVol, isPrimary: true, linkedToken));
+                tasks.Add(PlayQueueStreamAsync(rawArray, format, targetUid, pVol, isPrimary: true, linkedToken));
             }
 
             if (playMonitor)
             {
                 string? targetUid = ResolveDeviceUid(monitorId);
-                tasks.Add(PlayQueueStreamAsync(rawArray, targetUid, mVol, isPrimary: false, linkedToken));
+                tasks.Add(PlayQueueStreamAsync(rawArray, format, targetUid, mVol, isPrimary: false, linkedToken));
             }
 
             var results = await Task.WhenAll(tasks);
-            Result? failure = results.FirstOrDefault(r => r.IsFailure);
-            return failure ?? Result.Success();
+
+            /* Result is a struct: FirstOrDefault would return a default (failed) Result when every device succeeded */
+            foreach (var result in results)
+            {
+                if (result.IsFailure) return result;
+            }
+            return Result.Success();
         }
         catch (OperationCanceledException)
         {
@@ -198,8 +226,10 @@ public class MacAudioPlayer : IAudioPlayer
     }
 
 
+    /* Creates an AudioQueue for one device, plays the buffer on it and completes when the queue reports it played */
     private Task<Result> PlayQueueStreamAsync(
         byte[] pcmBytes,
+        AudioFormat format,
         string? deviceUid,
         float volume,
         bool isPrimary,
@@ -207,27 +237,27 @@ public class MacAudioPlayer : IAudioPlayer
     {
         var tcs = new TaskCompletionSource<Result>();
 
-        /* Format: 24000Hz, 16-bit mono PCM */
-        var asbd = new MacCoreAudioApi.AudioStreamBasicDescription
+        /* Format: packed signed-integer PCM exactly as described by the engine's output format */
+        var asbd = new ICoreAudioApi.AudioStreamBasicDescription
         {
-            mSampleRate = 24000.0,
-            mFormatID = MacCoreAudioApi.kAudioFormatLinearPCM,
-            mFormatFlags = MacCoreAudioApi.kAudioFormatFlagIsSignedInteger | MacCoreAudioApi.kAudioFormatFlagIsPacked,
-            mBytesPerPacket = 2,
+            mSampleRate = format.SampleRate,
+            mFormatID = ICoreAudioApi.kAudioFormatLinearPCM,
+            mFormatFlags = ICoreAudioApi.kAudioFormatFlagIsSignedInteger | ICoreAudioApi.kAudioFormatFlagIsPacked,
+            mBytesPerPacket = (uint)format.FrameSize,
             mFramesPerPacket = 1,
-            mBytesPerFrame = 2,
-            mChannelsPerFrame = 1,
-            mBitsPerChannel = 16,
+            mBytesPerFrame = (uint)format.FrameSize,
+            mChannelsPerFrame = (uint)format.Channels,
+            mBitsPerChannel = (uint)format.BitDepth,
             mReserved = 0
         };
 
-        MacCoreAudioApi.AudioQueueOutputCallback callback = (userData, queue, buffer) =>
+        ICoreAudioApi.AudioQueueOutputCallback callback = (userData, queue, buffer) =>
         {
             /* Fired when the audio buffer completes playback */
             tcs.TrySetResult(Result.Success());
         };
 
-        if (MacCoreAudioApi.AudioQueueNewOutput(ref asbd, callback, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0,
+        if (_api.AudioQueueNewOutput(ref asbd, callback, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0,
                 out IntPtr queue) != 0)
         {
             return Task.FromResult(Result.Failure("Failed to create macOS AudioQueue"));
@@ -242,37 +272,39 @@ public class MacAudioPlayer : IAudioPlayer
         /* Routes to target CoreAudio device UID */
         if (!string.IsNullOrEmpty(deviceUid))
         {
-            IntPtr cfUid = MacCoreAudioApi.StringToCFString(deviceUid);
+            IntPtr cfUid = _api.StringToCFString(deviceUid);
             try
             {
-                MacCoreAudioApi.AudioQueueSetProperty(
+                _api.AudioQueueSetProperty(
                     queue,
-                    MacCoreAudioApi.kAudioQueueProperty_CurrentDevice,
+                    ICoreAudioApi.kAudioQueueProperty_CurrentDevice,
                     ref cfUid,
                     (uint)IntPtr.Size);
             }
             finally
             {
-                MacCoreAudioApi.CFRelease(cfUid);
+                _api.CFRelease(cfUid);
             }
         }
         
         /* Sets initial volume */
-        MacCoreAudioApi.AudioQueueSetParameter(queue, MacCoreAudioApi.kAudioQueueParam_Volume, volume);
+        _api.AudioQueueSetParameter(queue, ICoreAudioApi.kAudioQueueParam_Volume, volume);
         
         /* Allocates and populates the buffer */
-        if (MacCoreAudioApi.AudioQueueAllocateBuffer(queue, (uint)pcmBytes.Length, out IntPtr bufferPtr) != 0)
+        if (_api.AudioQueueAllocateBuffer(queue, (uint)pcmBytes.Length, out IntPtr bufferPtr) != 0)
         {
             return Task.FromResult(Result.Failure("Failed to allocate AudioQueue buffer."));
         }
         
-        /* Writes PCM data to buffer pointer */
-        IntPtr dataptr = Marshal.ReadIntPtr(bufferPtr, 4); /* Offsets to mAudioData in AudioQueueBuffer */
-        Marshal.Copy(pcmBytes, 0, dataptr, pcmBytes.Length);
-        Marshal.WriteInt32(bufferPtr, 12, pcmBytes.Length); /* mAudioDataSize */
+        /* Writes PCM data to buffer pointer (field offsets come from the AudioQueueBuffer layout, which is
+           pointer-aligned, so they differ between 32 and 64-bit) */
+        var queueBuffer = Marshal.PtrToStructure<ICoreAudioApi.AudioQueueBuffer>(bufferPtr);
+        Marshal.Copy(pcmBytes, 0, queueBuffer.mAudioData, pcmBytes.Length);
+        queueBuffer.mAudioDataByteSize = (uint)pcmBytes.Length; /* mAudioDataSize */
+        Marshal.StructureToPtr(queueBuffer, bufferPtr, false);
 
-        MacCoreAudioApi.AudioQueueEnqueueBuffer(queue, bufferPtr, 0, IntPtr.Zero);
-        MacCoreAudioApi.AudioQueueStart(queue, IntPtr.Zero);
+        _api.AudioQueueEnqueueBuffer(queue, bufferPtr, 0, IntPtr.Zero);
+        _api.AudioQueueStart(queue, IntPtr.Zero);
         
         /* Cancellation token registration */
         token.Register(() =>
@@ -283,24 +315,27 @@ public class MacAudioPlayer : IAudioPlayer
         return tcs.Task;
     }
 
+    /* Pauses the active queues */
     public void Pause()
     {
         lock (_processLock)
         {
-            if (_primaryQueue != IntPtr.Zero) MacCoreAudioApi.AudioQueuePause(_primaryQueue);
-            if (_monitorQueue != IntPtr.Zero) MacCoreAudioApi.AudioQueuePause(_monitorQueue);
+            if (_primaryQueue != IntPtr.Zero) _api.AudioQueuePause(_primaryQueue);
+            if (_monitorQueue != IntPtr.Zero) _api.AudioQueuePause(_monitorQueue);
         }
     }
 
+    /* Restarts the paused queues */
     public void Resume()
     {
         lock (_processLock)
         {
-            if (_primaryQueue != IntPtr.Zero) MacCoreAudioApi.AudioQueueStart(_primaryQueue, IntPtr.Zero);
-            if (_monitorQueue != IntPtr.Zero) MacCoreAudioApi.AudioQueueStart(_monitorQueue, IntPtr.Zero);
+            if (_primaryQueue != IntPtr.Zero) _api.AudioQueueStart(_primaryQueue, IntPtr.Zero);
+            if (_monitorQueue != IntPtr.Zero) _api.AudioQueueStart(_monitorQueue, IntPtr.Zero);
         }
     }
     
+    /* Cancels the current playback and stops + disposes the active queues */
     public void Stop()
     {
         lock (_processLock)
@@ -311,33 +346,34 @@ public class MacAudioPlayer : IAudioPlayer
 
             if (_primaryQueue != IntPtr.Zero)
             {
-                MacCoreAudioApi.AudioQueueStop(_primaryQueue, true);
-                MacCoreAudioApi.AudioQueueDispose(_primaryQueue, true);
+                _api.AudioQueueStop(_primaryQueue, true);
+                _api.AudioQueueDispose(_primaryQueue, true);
                 _primaryQueue = IntPtr.Zero;
             }
 
             if (_monitorQueue != IntPtr.Zero)
             {
-                MacCoreAudioApi.AudioQueueStop(_monitorQueue, true);
-                MacCoreAudioApi.AudioQueueDispose(_monitorQueue, true);
+                _api.AudioQueueStop(_monitorQueue, true);
+                _api.AudioQueueDispose(_monitorQueue, true);
                 _monitorQueue = IntPtr.Zero;
             }
         }
     }
 
-    private static List<MacDevice> EnumerateOutputDevices()
+    /* Returns every CoreAudio device that has at least one output channel, with its name and UID */
+    private List<MacDevice> EnumerateOutputDevices()
     {
         var result = new List<MacDevice>();
 
-        var address = new MacCoreAudioApi.AudioObjectPropertyAddress
+        var address = new ICoreAudioApi.AudioObjectPropertyAddress
         {
-            mSelector = MacCoreAudioApi.kAudioHardwarePropertyDevices,
-            mScope = MacCoreAudioApi.kAudioObjectPropertyScopeGlobal,
-            mElement = MacCoreAudioApi.kAudioObjectPropertyElementMain
+            mSelector = ICoreAudioApi.kAudioHardwarePropertyDevices,
+            mScope = ICoreAudioApi.kAudioObjectPropertyScopeGlobal,
+            mElement = ICoreAudioApi.kAudioObjectPropertyElementMain
         };
 
-        if (MacCoreAudioApi.AudioObjectGetPropertyDataSize(
-                MacCoreAudioApi.kAudioObjectSystemObject, ref address, 0, IntPtr.Zero, out uint dataSize) != 0)
+        if (_api.AudioObjectGetPropertyDataSize(
+                ICoreAudioApi.kAudioObjectSystemObject, ref address, 0, IntPtr.Zero, out uint dataSize) != 0)
         {
             return result;
         }
@@ -348,8 +384,8 @@ public class MacAudioPlayer : IAudioPlayer
 
         try
         {
-            if (MacCoreAudioApi.AudioObjectGetPropertyData(
-                    MacCoreAudioApi.kAudioObjectSystemObject, 
+            if (_api.AudioObjectGetPropertyData(
+                    ICoreAudioApi.kAudioObjectSystemObject, 
                     ref address, 
                     0, 
                     IntPtr.Zero, 
@@ -366,14 +402,14 @@ public class MacAudioPlayer : IAudioPlayer
 
         foreach (uint devId in deviceIds)
         {
-            var streamAddr = new MacCoreAudioApi.AudioObjectPropertyAddress
+            var streamAddr = new ICoreAudioApi.AudioObjectPropertyAddress
             {
-                mSelector = MacCoreAudioApi.kAudioDevicePropertyStreamConfiguration,
-                mScope = MacCoreAudioApi.kAudioObjectPropertyScopeOutput,
-                mElement = MacCoreAudioApi.kAudioObjectPropertyElementMain
+                mSelector = ICoreAudioApi.kAudioDevicePropertyStreamConfiguration,
+                mScope = ICoreAudioApi.kAudioObjectPropertyScopeOutput,
+                mElement = ICoreAudioApi.kAudioObjectPropertyElementMain
             };
 
-            if (MacCoreAudioApi.AudioObjectGetPropertyDataSize(
+            if (_api.AudioObjectGetPropertyDataSize(
                     devId, 
                     ref streamAddr, 
                     0, 
@@ -383,10 +419,10 @@ public class MacAudioPlayer : IAudioPlayer
                 IntPtr bufferListPtr = Marshal.AllocHGlobal((int)streamSize);
                 try
                 {
-                    if (MacCoreAudioApi.AudioObjectGetPropertyData(devId, ref streamAddr, 0, IntPtr.Zero,
+                    if (_api.AudioObjectGetPropertyData(devId, ref streamAddr, 0, IntPtr.Zero,
                             ref streamSize, bufferListPtr) == 0)
                     {
-                        var bufferList = Marshal.PtrToStructure<MacCoreAudioApi.AudioBufferList>(bufferListPtr);
+                        var bufferList = Marshal.PtrToStructure<ICoreAudioApi.AudioBufferList>(bufferListPtr);
                         if (bufferList.mNumberBuffers == 0 || bufferList.mBuffers.mNumberChannels == 0)
                             continue;
                     }
@@ -399,15 +435,15 @@ public class MacAudioPlayer : IAudioPlayer
             else continue;
             
             string name = $"Audio Device {devId}";
-            var nameAddr = new MacCoreAudioApi.AudioObjectPropertyAddress
+            var nameAddr = new ICoreAudioApi.AudioObjectPropertyAddress
             {
-                mSelector = MacCoreAudioApi.kAudioDevicePropertyDeviceNameCFString,
-                mScope = MacCoreAudioApi.kAudioObjectPropertyScopeGlobal,
-                mElement = MacCoreAudioApi.kAudioObjectPropertyElementMain
+                mSelector = ICoreAudioApi.kAudioDevicePropertyDeviceNameCFString,
+                mScope = ICoreAudioApi.kAudioObjectPropertyScopeGlobal,
+                mElement = ICoreAudioApi.kAudioObjectPropertyElementMain
             };
 
             uint ptrSize = (uint)IntPtr.Size;
-            if (MacCoreAudioApi.AudioObjectGetPropertyData(
+            if (_api.AudioObjectGetPropertyData(
                     devId, 
                     ref nameAddr, 
                     0, 
@@ -415,19 +451,19 @@ public class MacAudioPlayer : IAudioPlayer
                     ref ptrSize,
                     out IntPtr cfName) == 0)
             {
-                name = MacCoreAudioApi.CFStringToString(cfName) ?? name;
+                name = _api.CFStringToString(cfName) ?? name;
             }
             
             string uid = devId.ToString();
-            var uidAddr = new MacCoreAudioApi.AudioObjectPropertyAddress
+            var uidAddr = new ICoreAudioApi.AudioObjectPropertyAddress
             {
-                mSelector = MacCoreAudioApi.kAudioDevicePropertyDeviceUID,
-                mScope = MacCoreAudioApi.kAudioObjectPropertyScopeGlobal,
-                mElement = MacCoreAudioApi.kAudioObjectPropertyElementMain
+                mSelector = ICoreAudioApi.kAudioDevicePropertyDeviceUID,
+                mScope = ICoreAudioApi.kAudioObjectPropertyScopeGlobal,
+                mElement = ICoreAudioApi.kAudioObjectPropertyElementMain
             };
 
             ptrSize = (uint)IntPtr.Size;
-            if (MacCoreAudioApi.AudioObjectGetPropertyData(
+            if (_api.AudioObjectGetPropertyData(
                     devId, 
                     ref uidAddr, 
                     0, 
@@ -435,7 +471,7 @@ public class MacAudioPlayer : IAudioPlayer
                     ref ptrSize, 
                     out IntPtr cfUid) == 0)
             {
-                uid = MacCoreAudioApi.CFStringToString(cfUid) ?? uid;
+                uid = _api.CFStringToString(cfUid) ?? uid;
             }
             result.Add(new MacDevice(uid, name));
         }
@@ -443,7 +479,8 @@ public class MacAudioPlayer : IAudioPlayer
         return result;
     }
 
-    private static string? ResolveDeviceUid(string? deviceId)
+    /* Maps a device id (list index, UID or name) to a CoreAudio UID; null means the system default device */
+    private string? ResolveDeviceUid(string? deviceId)
     {
         if (string.IsNullOrWhiteSpace(deviceId) || deviceId == "-1")
             return null; /* System default device */

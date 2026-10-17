@@ -13,7 +13,7 @@ public class ShortcutCombo
         /* Throws an error if it's created without a main key (Ex. "Ctrl+Shift") */
         if (string.IsNullOrEmpty(mainKey))
         {
-            throw new ArgumentNullException("The shortcut must contain a main key.");
+            throw new ArgumentNullException(nameof(mainKey), "The shortcut must contain a main key.");
         }
 
         /* Validates that at least one modifier key is provided to prevent capturing plain typing keys */

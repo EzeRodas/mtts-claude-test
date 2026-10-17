@@ -11,7 +11,7 @@ public static class DisableMainOutputCommand
 {
     public static Command Build(IServiceProvider services)
     {
-        var command = new Command("disable", "Enables the primary audio output.");
+        var command = new Command("disable", "Disables the primary audio output.");
         command.SetAction((_) =>
         {
             var settingsManager = services.GetRequiredService<SettingsManager>();

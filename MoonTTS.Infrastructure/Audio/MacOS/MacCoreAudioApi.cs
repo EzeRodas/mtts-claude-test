@@ -1,200 +1,175 @@
 #if !WINDOWS
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 namespace MoonTTS.Infrastructure.Audio;
 
 /* Ahh... Here we go again */
 
-internal static class MacCoreAudioApi
+/* File Structure:
+        - (one forwarding method per ICoreAudioApi member)
+        - Native
+            - CoreAudioLib : string
+            - AudioToolboxLib : string
+            - CoreFoundationLib : string
+            - (one extern per ICoreAudioApi member)
+*/
+
+/* Real ICoreAudioApi: forwards every call to CoreAudio, AudioToolbox and CoreFoundation */
+[SupportedOSPlatform("macos")]
+internal sealed class MacCoreAudioApi : ICoreAudioApi
 {
-    private const string CoreAudioLib = "/System/Library/Frameworks/CodeAudio.framework/CoreAudio";
-    private const string AudioToolboxLib = "/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox";
-    private const string CoreFoundationLib = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
-    
-    /* Constants */
+    /* Forwards to CoreAudio AudioObjectGetPropertyDataSize */
+    public int AudioObjectGetPropertyDataSize(uint inObjectID, ref ICoreAudioApi.AudioObjectPropertyAddress inAddress,
+        uint inQualifierDataSize, IntPtr inQualifierData, out uint outDataSize) =>
+        Native.AudioObjectGetPropertyDataSize(inObjectID, ref inAddress, inQualifierDataSize, inQualifierData, out outDataSize);
 
-    public const uint kAudioObjectSystemObject = 1;
-    public const uint kAudioHardwarePropertyDevices = 0x64657623; /* dev# */
-    public const uint kAudioObjectPropertyScopeGlobal = 0x676c6f62; /* glob */
-    public const uint kAudioObjectPropertyScopeOutput = 0x6f757470; /* outp */
-    public const uint kAudioObjectPropertyElementMain = 0;
-    
-    public const uint kAudioDevicePropertyDeviceNameCFString = 0x6c6e616d; /* lnam */
-    public const uint kAudioDevicePropertyDeviceUID = 0x75696420; /* uid */
-    public const uint kAudioDevicePropertyStreamConfiguration = 0x736c7074; /* slpt */
+    /* Forwards to CoreAudio AudioObjectGetPropertyData (caller-owned buffer) */
+    public int AudioObjectGetPropertyData(uint inObjectID, ref ICoreAudioApi.AudioObjectPropertyAddress inAddress,
+        uint inQualifierDataSize, IntPtr inQualifierData, ref uint ioDataSize, IntPtr outData) =>
+        Native.AudioObjectGetPropertyData(inObjectID, ref inAddress, inQualifierDataSize, inQualifierData, ref ioDataSize, outData);
 
-    public const uint kAudioFormatLinearPCM = 0x6c70636d; /* lpcm */
-    public const uint kAudioFormatFlagIsSignedInteger = 4;
-    public const uint kAudioFormatFlagIsPacked = 8;
-    
-    public const uint kAudioQueueProperty_CurrentDevice  = 0x6c70636d; /* aqcd */
-    public const uint kAudioQueueParam_Volume  = 1;
-    
-    /* Structs */
+    /* Forwards to CoreAudio AudioObjectGetPropertyData (pointer-sized value) */
+    public int AudioObjectGetPropertyData(uint inObjectID, ref ICoreAudioApi.AudioObjectPropertyAddress inAddress,
+        uint inQualifierDataSize, IntPtr inQualifierData, ref uint ioDataSize, out IntPtr outData) =>
+        Native.AudioObjectGetPropertyData(inObjectID, ref inAddress, inQualifierDataSize, inQualifierData, ref ioDataSize, out outData);
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct AudioObjectPropertyAddress
+    /* Forwards to AudioToolbox AudioQueueNewOutput */
+    public int AudioQueueNewOutput(ref ICoreAudioApi.AudioStreamBasicDescription inFormat,
+        ICoreAudioApi.AudioQueueOutputCallback inCallBackProc, IntPtr inUserData, IntPtr inCallbackRunLoop,
+        IntPtr inCallbackRunLoopMode, uint inFlags, out IntPtr outAQ) =>
+        Native.AudioQueueNewOutput(ref inFormat, inCallBackProc, inUserData, inCallbackRunLoop, inCallbackRunLoopMode, inFlags, out outAQ);
+
+    /* Forwards to AudioToolbox AudioQueueAllocateBuffer */
+    public int AudioQueueAllocateBuffer(IntPtr inAQ, uint inBufferByteSize, out IntPtr outBuffer) =>
+        Native.AudioQueueAllocateBuffer(inAQ, inBufferByteSize, out outBuffer);
+
+    /* Forwards to AudioToolbox AudioQueueEnqueueBuffer */
+    public int AudioQueueEnqueueBuffer(IntPtr inAQ, IntPtr inBuffer, uint inNumPacketDescs, IntPtr inPacketDescs) =>
+        Native.AudioQueueEnqueueBuffer(inAQ, inBuffer, inNumPacketDescs, inPacketDescs);
+
+    /* Forwards to AudioToolbox AudioQueueStart */
+    public int AudioQueueStart(IntPtr inAQ, IntPtr inStartTime) => Native.AudioQueueStart(inAQ, inStartTime);
+
+    /* Forwards to AudioToolbox AudioQueuePause */
+    public int AudioQueuePause(IntPtr inAQ) => Native.AudioQueuePause(inAQ);
+
+    /* Forwards to AudioToolbox AudioQueueStop */
+    public int AudioQueueStop(IntPtr inAQ, bool inImmediate) => Native.AudioQueueStop(inAQ, inImmediate);
+
+    /* Forwards to AudioToolbox AudioQueueDispose */
+    public int AudioQueueDispose(IntPtr inAQ, bool inImmediate) => Native.AudioQueueDispose(inAQ, inImmediate);
+
+    /* Forwards to AudioToolbox AudioQueueSetParameter */
+    public int AudioQueueSetParameter(IntPtr inAQ, uint inParamID, float inValue) =>
+        Native.AudioQueueSetParameter(inAQ, inParamID, inValue);
+
+    /* Forwards to AudioToolbox AudioQueueSetProperty */
+    public int AudioQueueSetProperty(IntPtr inAQ, uint inParamID, ref IntPtr inPropertyData, uint inDatasize) =>
+        Native.AudioQueueSetProperty(inAQ, inParamID, ref inPropertyData, inDatasize);
+
+    /* Forwards to CoreFoundation CFStringGetLength */
+    public nint CFStringGetLenght(IntPtr theString) => Native.CFStringGetLenght(theString);
+
+    /* Forwards to CoreFoundation CFStringGetCharacters */
+    public void CFStringGetCharacters(IntPtr theString, ICoreAudioApi.CFRange range, IntPtr buffer) =>
+        Native.CFStringGetCharacters(theString, range, buffer);
+
+    /* Forwards to CoreFoundation CFStringCreateWithCharacters */
+    public IntPtr CFStringCreateWithCharacters(IntPtr alloc, string chars, nint numChars) =>
+        Native.CFStringCreateWithCharacters(alloc, chars, numChars);
+
+    /* Forwards to CoreFoundation CFRelease */
+    public void CFRelease(IntPtr cf) => Native.CFRelease(cf);
+
+    private static class Native
     {
-        public uint mSelector;
-        public uint mScope;
-        public uint mElement;
-    }
-    
-    [StructLayout(LayoutKind.Sequential)]
-    public struct AudioStreamBasicDescription
-    {
-        public double mSampleRate;
-        public uint mFormatID;
-        public uint mFormatFlags;
-        public uint mBytesPerPacket;
-        public uint mFramesPerPacket;
-        public uint mBytesPerFrame;
-        public uint mChannelsPerFrame;
-        public uint mBitsPerChannel;
-        public uint mReserved;
-    }
-    
-    [StructLayout(LayoutKind.Sequential)]
-    public struct AudioBuffer
-    {
-        public uint mNumberChannels;
-        public uint mDataByteSize;
-        public IntPtr mData;
-    }
-    
-    [StructLayout(LayoutKind.Sequential)]
-    public struct AudioBufferList
-    {
-        public uint mNumberBuffers;
-        public AudioBuffer mBuffers; /* Inline first buffer */
-    }
+        private const string CoreAudioLib = "/System/Library/Frameworks/CodeAudio.framework/CoreAudio";
+        private const string AudioToolboxLib = "/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox";
+        private const string CoreFoundationLib = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct CFRange
-    {
-        public nint Location;
-        public nint Lenght;
-    }
+        /* P/Invoke for CoreAudio */
 
-    public delegate void AudioQueueOutputCallback(IntPtr inUserData, IntPtr inAQ, IntPtr inBuffer);
-    
-    /* P/Invoke for CoreAudio */
+        [DllImport(CoreAudioLib)]
+        public static extern int AudioObjectGetPropertyDataSize(
+            uint inObjectID,
+            ref ICoreAudioApi.AudioObjectPropertyAddress inAddress,
+            uint inQualifierDataSize,
+            IntPtr inQualifierData,
+            out uint outDataSize);
 
-    [DllImport(CoreAudioLib)]
-    public static extern int AudioObjectGetPropertyDataSize(
-        uint inObjectID,
-        ref AudioObjectPropertyAddress inAddress,
-        uint inQualifierDataSize,
-        IntPtr inQualifierData,
-        out uint outDataSize);
-    
-    [DllImport(CoreAudioLib)]
-    public static extern int AudioObjectGetPropertyData(
-        uint inObjectID,
-        ref AudioObjectPropertyAddress inAddress,
-        uint inQualifierDataSize,
-        IntPtr inQualifierData,
-        ref uint ioDataSize,
-        IntPtr outData);
-    
-    [DllImport(CoreAudioLib, EntryPoint = "AudioObjectGetPropertyData")]
-    public static extern int AudioObjectGetPropertyData(
-        uint inObjectID,
-        ref AudioObjectPropertyAddress inAddress,
-        uint inQualifierDataSize,
-        IntPtr inQualifierData,
-        ref uint ioDataSize,
-        out IntPtr outData);
+        [DllImport(CoreAudioLib)]
+        public static extern int AudioObjectGetPropertyData(
+            uint inObjectID,
+            ref ICoreAudioApi.AudioObjectPropertyAddress inAddress,
+            uint inQualifierDataSize,
+            IntPtr inQualifierData,
+            ref uint ioDataSize,
+            IntPtr outData);
 
-    [DllImport(AudioToolboxLib)]
-    public static extern int AudioQueueNewOutput(
-        ref AudioStreamBasicDescription inFormat,
-        AudioQueueOutputCallback inCallBackProc,
-        IntPtr inUserData,
-        IntPtr inCallbackRunLoop,
-        IntPtr inCallbackRunLoopMode,
-        uint inFlags,
-        out IntPtr outAQ);
+        [DllImport(CoreAudioLib, EntryPoint = "AudioObjectGetPropertyData")]
+        public static extern int AudioObjectGetPropertyData(
+            uint inObjectID,
+            ref ICoreAudioApi.AudioObjectPropertyAddress inAddress,
+            uint inQualifierDataSize,
+            IntPtr inQualifierData,
+            ref uint ioDataSize,
+            out IntPtr outData);
 
-    [DllImport(AudioToolboxLib)]
-    public static extern int AudioQueueAllocateBuffer(IntPtr inAQ, uint inBufferByteSize, out IntPtr outBuffer);
+        [DllImport(AudioToolboxLib)]
+        public static extern int AudioQueueNewOutput(
+            ref ICoreAudioApi.AudioStreamBasicDescription inFormat,
+            ICoreAudioApi.AudioQueueOutputCallback inCallBackProc,
+            IntPtr inUserData,
+            IntPtr inCallbackRunLoop,
+            IntPtr inCallbackRunLoopMode,
+            uint inFlags,
+            out IntPtr outAQ);
 
-    [DllImport(AudioToolboxLib)]
-    public static extern int AudioQueueEnqueueBuffer(
-        IntPtr inAQ, 
-        IntPtr inBuffer, 
-        uint inNumPacketDescs, 
-        IntPtr inPacketDescs);
+        [DllImport(AudioToolboxLib)]
+        public static extern int AudioQueueAllocateBuffer(IntPtr inAQ, uint inBufferByteSize, out IntPtr outBuffer);
 
-    [DllImport(AudioToolboxLib)]
-    public static extern int AudioQueueStart(IntPtr inAQ, IntPtr inStartTime);
+        [DllImport(AudioToolboxLib)]
+        public static extern int AudioQueueEnqueueBuffer(
+            IntPtr inAQ,
+            IntPtr inBuffer,
+            uint inNumPacketDescs,
+            IntPtr inPacketDescs);
 
-    [DllImport(AudioToolboxLib)]
-    public static extern int AudioQueuePause(IntPtr inAQ);
+        [DllImport(AudioToolboxLib)]
+        public static extern int AudioQueueStart(IntPtr inAQ, IntPtr inStartTime);
 
-    [DllImport(AudioToolboxLib)]
-    public static extern int AudioQueueStop(IntPtr inAQ, bool inImmediate);
+        [DllImport(AudioToolboxLib)]
+        public static extern int AudioQueuePause(IntPtr inAQ);
 
-    [DllImport(AudioToolboxLib)]
-    public static extern int AudioQueueDispose(IntPtr inAQ, bool inImmediate);
+        [DllImport(AudioToolboxLib)]
+        public static extern int AudioQueueStop(IntPtr inAQ, bool inImmediate);
 
-    [DllImport(AudioToolboxLib)]
-    public static extern int AudioQueueSetParameter(IntPtr inAQ, uint inParamID, float inValue);
-    
-    [DllImport(AudioToolboxLib)]
-    public static extern int AudioQueueSetProperty(IntPtr inAQ, uint inParamID, ref IntPtr inPropertyData, uint inDatasize);
-    
-    /* P/Invoke */
+        [DllImport(AudioToolboxLib)]
+        public static extern int AudioQueueDispose(IntPtr inAQ, bool inImmediate);
 
-    [DllImport(CoreFoundationLib)]
-    public static extern nint CFStringGetLenght(IntPtr theString);
+        [DllImport(AudioToolboxLib)]
+        public static extern int AudioQueueSetParameter(IntPtr inAQ, uint inParamID, float inValue);
 
-    [DllImport(CoreFoundationLib)]
-    public static extern void CFStringGetCharacters(IntPtr theString, CFRange range, IntPtr buffer);
-    
-    [DllImport(CoreFoundationLib)]
-    public static extern IntPtr CFStringCreateWithCharacters(
-        IntPtr alloc, 
-        [MarshalAs(UnmanagedType.LPWStr)] string chars, 
-        nint numChars);
+        [DllImport(AudioToolboxLib)]
+        public static extern int AudioQueueSetProperty(IntPtr inAQ, uint inParamID, ref IntPtr inPropertyData, uint inDatasize);
 
-    [DllImport(CoreFoundationLib)]
-    public static extern void CFRelease(IntPtr cf);
-    
-    /* Marshaling helpers */
+        /* P/Invoke */
 
-    public static string? CFStringToString(IntPtr cfString)
-    {
-        if (cfString == IntPtr.Zero) return null;
-        try
-        {
-            nint len = CFStringGetLenght(cfString);
-            if (len == 0) return string.Empty;
+        [DllImport(CoreFoundationLib)]
+        public static extern nint CFStringGetLenght(IntPtr theString);
 
-            char[] buffer = new char[len];
-            GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-            try
-            {
-                CFStringGetCharacters(
-                    cfString,
-                    new CFRange { Location = 0, Lenght = len },
-                    handle.AddrOfPinnedObject());
-                return new string(buffer);
-            }
-            finally
-            {
-                handle.Free();
-            }
-        }
-        finally
-        {
-            CFRelease(cfString);
-        }
-    }
+        [DllImport(CoreFoundationLib)]
+        public static extern void CFStringGetCharacters(IntPtr theString, ICoreAudioApi.CFRange range, IntPtr buffer);
 
-    public static IntPtr StringToCFString(string str)
-    {
-        return CFStringCreateWithCharacters(IntPtr.Zero, str, str.Length);
+        [DllImport(CoreFoundationLib)]
+        public static extern IntPtr CFStringCreateWithCharacters(
+            IntPtr alloc,
+            [MarshalAs(UnmanagedType.LPWStr)] string chars,
+            nint numChars);
+
+        [DllImport(CoreFoundationLib)]
+        public static extern void CFRelease(IntPtr cf);
     }
 }
 #endif

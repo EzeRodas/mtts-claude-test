@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Fakes, dummy OS helpers and fixtures shared by every test project -->
+  <ItemGroup>
+    <ProjectReference Include="../../../MoonTTS.Domain/MoonTTS.Domain.csproj" />
+    <ProjectReference Include="../../../MoonTTS.Core/MoonTTS.Core.csproj" />
+    <ProjectReference Include="../../../MoonTTS.Engine.Protocol/MoonTTS.Engine.Protocol.csproj" />
+    <!-- Copies the dummy engine worker next to every test assembly (see DummyEngineInstaller) -->
+    <ProjectReference Include="../MoonTTS.Tests.DummyEngine/MoonTTS.Tests.DummyEngine.csproj" />
+  </ItemGroup>
+
+</Project>
