@@ -138,7 +138,8 @@ public class WindowService : IWindowService
     {
         var config = _settingsManager.CurrentAppConfig;
         _mainWindow.IsExiting = true;
-        if (_settingsManager != null)
+        /* The settings window is created lazily, so it may not exist yet */
+        if (_settingsWindow != null)
         {
             _settingsWindow.IsExiting = true;
             _settingsWindow.Close();

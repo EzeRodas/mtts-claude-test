@@ -160,10 +160,12 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ToggleHotkeyDisplayText))]
     [NotifyPropertyChangedFor(nameof(ToggleRecordButtonText))]
+    [NotifyCanExecuteChangedFor(nameof(CloseCommand))]
     private bool _isRecordingToggleHotkey;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PhraseHotkeyDisplayText))]
+    [NotifyCanExecuteChangedFor(nameof(CloseCommand))]
     private bool _isRecordingPhraseHotkey;
 
     /* Dictionary Composer */
@@ -785,7 +787,8 @@ public partial class SettingsViewModel : ViewModelBase
         item.IsDownloading = true;
         try
         {
-            var progress = new Progress<double>(p => item.Progress = p * 100);
+            /* IModelDownloader already reports 0-100, the same range as the bound ProgressBar */
+            var progress = new Progress<double>(p => item.Progress = p);
             var result = await _downloadManager.DownloadModelAsync(item.Model, progress);
             item.IsDownloaded = result.IsSuccess;
             if (result.IsSuccess)
@@ -816,7 +819,11 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    /* While a hotkey is being recorded Escape must cancel the recording, so the window's Escape key binding
+       (which Avalonia runs before the window's tunnelled KeyDown handler) may not close the window */
+    private bool CanClose => !IsRecordingToggleHotkey && !IsRecordingPhraseHotkey;
+
+    [RelayCommand(CanExecute = nameof(CanClose))]
     private void Close() => _windowService?.HideSettingsWindow();
 
     [RelayCommand]
