@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../MoonTTS.Avalonia/MoonTTS.Avalonia.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Headless Avalonia platform: a dummy windowing system so views and window services run without a display -->
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.1" />
+  </ItemGroup>
+
+</Project>
