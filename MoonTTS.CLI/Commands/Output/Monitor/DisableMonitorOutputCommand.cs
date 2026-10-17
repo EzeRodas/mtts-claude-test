@@ -11,7 +11,7 @@ public static class DisableMonitorOutputCommand
 {
     public static Command Build(IServiceProvider services)
     {
-        var command = new Command("disable", "Enables the monitor audio output.");
+        var command = new Command("disable", "Disables the monitor audio output.");
         command.SetAction((_) =>
         {
             var settingsManager = services.GetRequiredService<SettingsManager>();

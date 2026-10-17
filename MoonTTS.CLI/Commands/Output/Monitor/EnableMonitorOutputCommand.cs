@@ -18,7 +18,7 @@ public static class EnableMonitorOutputCommand
             var config = settingsManager.CurrentAppConfig;
             config.EnableMonitorPlayback = true;
             settingsManager.SaveAppConfig(config);
-            Terminal.Success("Monitor audio output disabled.");
+            Terminal.Success("Monitor audio output enabled.");
             return 0;
         });
         return command;

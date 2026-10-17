@@ -1,0 +1,109 @@
+using MoonTTS.CLI.commands.Output.Monitor;
+using MoonTTS.CLI.Tests.Support;
+using MoonTTS.Domain.Common;
+using MoonTTS.Domain.Entities;
+
+namespace MoonTTS.CLI.Tests.Commands.Output.Monitor;
+
+[Collection(TestCollections.Environment)]
+public sealed class SetMonitorOutputCommandTests : IDisposable
+{
+    private readonly CliTestHost _host = new();
+
+    /* Adds the dummy sinks the OS reports, including the virtual mic */
+    public SetMonitorOutputCommandTests()
+    {
+        _host.AudioPlayer.Devices.Add(new AudioDeviceInfo { DeviceId = "alsa.speakers", DeviceName = "Built-in Speakers" });
+        _host.AudioPlayer.Devices.Add(new AudioDeviceInfo { DeviceId = "mtts_mic", DeviceName = "Moon-TTS Virtual Sink" });
+    }
+
+    /* Releases the host */
+    public void Dispose() => _host.Dispose();
+
+    /* Build creates the "set" command with a required "device" argument */
+    [Fact]
+    public void Build_Always_CreatesSetCommandWithDeviceArgument()
+    {
+        var command = SetMonitorOutputCommand.Build(_host.Services);
+
+        Assert.Equal("set", command.Name);
+        Assert.Equal("device", Assert.Single(command.Arguments).Name);
+    }
+
+    /* A failing device query is reported and nothing is saved */
+    [Fact]
+    public async Task Set_DeviceQueryFails_ReturnsErrorAndDoesNotSave()
+    {
+        _host.AudioPlayer.DevicesResultOverride = Result<List<AudioDeviceInfo>>.Failure("no audio server");
+
+        var run = await _host.RunAsync(SetMonitorOutputCommand.Build, "mtts_mic");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("Error retrieving audio devices: no audio server", run.Output);
+        Assert.Equal(0, _host.Repository.AppConfigSaveCount);
+    }
+
+    /* A successful query without a device list is treated as a failure */
+    [Fact]
+    public async Task Set_NullDeviceList_ReturnsError()
+    {
+        _host.AudioPlayer.DevicesResultOverride = Result<List<AudioDeviceInfo>>.Success(null!);
+
+        var run = await _host.RunAsync(SetMonitorOutputCommand.Build, "mtts_mic");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("Error retrieving audio devices", run.Output);
+    }
+
+    /* A device that does not exist fails with a hint and nothing is saved */
+    [Fact]
+    public async Task Set_UnknownDevice_ReturnsErrorWithHint()
+    {
+        var run = await _host.RunAsync(SetMonitorOutputCommand.Build, "bluetooth");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("Error: Unknown audio device 'bluetooth'.", run.Output);
+        Assert.Contains("mtts output list", run.Output);
+        Assert.Equal(0, _host.Repository.AppConfigSaveCount);
+    }
+
+    /* A device given by id is saved as the monitor device */
+    [Fact]
+    public async Task Set_DeviceById_SavesMonitorDeviceId()
+    {
+        var run = await _host.RunAsync(SetMonitorOutputCommand.Build, "mtts_mic");
+
+        Assert.Equal(0, run.ExitCode);
+        Assert.Equal("mtts_mic", _host.Repository.AppConfig.MonitorAudioDeviceId);
+        Assert.Equal(1, _host.Repository.AppConfigSaveCount);
+    }
+
+    /* A device given by (part of) its name is saved by its id */
+    [Fact]
+    public async Task Set_DeviceByPartialName_SavesMonitorDeviceId()
+    {
+        await _host.RunAsync(SetMonitorOutputCommand.Build, "virtual");
+
+        Assert.Equal("mtts_mic", _host.Repository.AppConfig.MonitorAudioDeviceId);
+    }
+
+    /* The primary device is left untouched */
+    [Fact]
+    public async Task Set_Device_KeepsPrimaryDevice()
+    {
+        _host.Repository.AppConfig.PrimaryAudioDeviceId = "alsa.speakers";
+
+        await _host.RunAsync(SetMonitorOutputCommand.Build, "mtts_mic");
+
+        Assert.Equal("alsa.speakers", _host.Repository.AppConfig.PrimaryAudioDeviceId);
+    }
+
+    /* The confirmation shows the device name and id */
+    [Fact]
+    public async Task Set_Device_PrintsDeviceNameAndId()
+    {
+        var run = await _host.RunAsync(SetMonitorOutputCommand.Build, "mtts_mic");
+
+        Assert.Contains("Monitor audio output set to: Moon-TTS Virtual Sink (mtts_mic)", run.Output);
+    }
+}

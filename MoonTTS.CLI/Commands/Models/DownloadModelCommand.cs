@@ -41,9 +41,10 @@ public static class DownloadModelCommand
 
             Terminal.Info($"Downloading model files for '{modelId}'...");
 
+            /* IModelDownloader already reports a 0-100 percentage */
             var progress = new Progress<double>(percent =>
             {
-                Terminal.RenderProgressBar($"Downloading {modelId}", (int)(percent * 100));
+                Terminal.RenderProgressBar($"Downloading {modelId}", (int)percent);
             });
 
             var result = await downloadManager.DownloadModelAsync(modelId, progress, cancellationToken);
