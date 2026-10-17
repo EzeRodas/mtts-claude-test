@@ -23,6 +23,7 @@ namespace MoonTTS.Avalonia.ViewModels;
         - LoadSettings() : void
         - LoadModelStatuses() : void
         - SwitchModelAsync(ModelMetadata model) : Task
+        - RevertModelSelectionAsync() : Task
         - AutoSave() : void
         - SwitchToAdvanced() : void
         - SwitchToQuick() : void
@@ -71,6 +72,9 @@ public partial class ModelStatusItem : ObservableObject
 
 public partial class SettingsViewModel : ViewModelBase
 {
+    public const string ModelNotInstalledMessage =
+        "Model not installed. For download please head to the advanced settings menu";
+
     private readonly SettingsManager? _settingsManager;
     private readonly IAudioPlayer? _audioPlayer;
     private readonly IWindowService? _windowService;
@@ -95,6 +99,10 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private VoiceInfo? _selectedVoice;
+
+    /* Feedback shown under the model selectors (e.g. the selected model is not installed) */
+    [ObservableProperty]
+    private string? _modelStatusMessage;
 
     [ObservableProperty]
     private bool _enablePrimaryPlayback = true;
@@ -395,6 +403,15 @@ public partial class SettingsViewModel : ViewModelBase
         if (_isLoading || value == null)
             return;
 
+        /* Every installed engine's models are listed, but only downloaded ones can be activated */
+        if (_downloadManager != null && !_downloadManager.IsModelDownloaded(value.Id))
+        {
+            ModelStatusMessage = ModelNotInstalledMessage;
+            _ = RevertModelSelectionAsync();
+            return;
+        }
+
+        ModelStatusMessage = null;
         if (_engineProvider != null && _engineProvider.CurrentModel != value.Id)
         {
             _ = SwitchModelAsync(value);
@@ -432,17 +449,28 @@ public partial class SettingsViewModel : ViewModelBase
         }
         else
         {
-            /* Model switch failed (e.g. model not downloaded) - revert dropdown without saving */
+            /* Model switch failed (e.g. the engine worker could not start) - revert dropdown without saving */
             await Console.Error.WriteLineAsync($"Model switch failed: {switchResult.ErrorMessage}");
-            _isLoading = true;
-            try
-            {
-                SelectedModel = AvailableModels.FirstOrDefault(m => m.Id == _engineProvider.CurrentModel);
-            }
-            finally
-            {
-                _isLoading = false;
-            }
+            ModelStatusMessage = switchResult.ErrorMessage;
+            await RevertModelSelectionAsync();
+        }
+    }
+
+    /* Restores the dropdown to the saved active model without saving. Yields first so the ComboBox finishes
+       applying the user's selection before it is replaced */
+    private async Task RevertModelSelectionAsync()
+    {
+        await Task.Yield();
+
+        var activeModel = _settingsManager?.CurrentAppConfig.ActiveModel ?? ModelId.Unselected;
+        _isLoading = true;
+        try
+        {
+            SelectedModel = AvailableModels.FirstOrDefault(m => m.Id == activeModel);
+        }
+        finally
+        {
+            _isLoading = false;
         }
     }
 

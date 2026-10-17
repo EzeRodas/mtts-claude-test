@@ -95,6 +95,8 @@
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
                         </Grid>
+                        <TextBlock Text="{Binding ModelStatusMessage}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap"
+                                   IsVisible="{Binding ModelStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                         <Grid ColumnDefinitions="70,*">
                             <TextBlock Text="Voice" Classes="field-label" VerticalAlignment="Center"/>
                             <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableVoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
@@ -285,6 +287,8 @@
                                         </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                 </ComboBox>
+                                <TextBlock Text="{Binding ModelStatusMessage}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap"
+                                           IsVisible="{Binding ModelStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                 <TextBlock Text="Voice Preset" Classes="field-label"/>
                                 <ComboBox ItemsSource="{Binding AvailableVoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
                                     <ComboBox.ItemTemplate>

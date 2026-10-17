@@ -497,6 +497,7 @@ sequenceDiagram
   - Enables one-click preview and playback (`▶`) of previous speech synthesis outputs directly from the history tab via **HistoryManager.PlayEntryAsync(id)**.
 * **Dynamic Engine Management**:
   - Lists the models of every installed engine and scans their installation status via **DownloadManager.IsModelDownloaded(modelId)**, rendering `✓ Installed` badges and Delete buttons for active weights, while offering Download buttons with live progress bars for missing models.
+  - The model selectors (Quick Settings and the Engine tab) list every model of every installed engine. Selecting one that is not downloaded shows "Model not installed. For download please head to the advanced settings menu" under the selector and reverts to the active model without saving; `mtts model set` likewise refuses it and points to `mtts model download`.
 
 ---
 
