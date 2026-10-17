@@ -1,7 +1,6 @@
 using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using MoonTTS.CLI.Utilities;
-using MoonTTS.Domain.Enums;
 using MoonTTS.Domain.Interfaces;
 
 namespace MoonTTS.CLI.commands;
@@ -16,18 +15,21 @@ public static class SetModelCommand
         var modelArg = new Argument<string>("model") { Description = "The name of the model to activate." };
         command.Add(modelArg);
 
-        command.SetAction((parseResult) =>
+        command.SetAction(async (parseResult, cancellationToken) =>
         {
             string modelInput = parseResult.GetValue(modelArg) ?? string.Empty;
-            if (!Enum.TryParse<TtsModelType>(modelInput, true, out var modelType))
+            var modelRegistry = services.GetRequiredService<IModelRegistry>();
+            var model = modelRegistry.FindModel(modelInput);
+            if (model == null)
             {
                 Terminal.Error($"Error: Unknown model '{modelInput}'.");
-                Terminal.Muted("Available models: " + string.Join(", ", Enum.GetNames<TtsModelType>()));
+                var validModels = modelRegistry.GetAvailableModels().Select(m => m.Id.ToString());
+                Terminal.Muted("Available models: " + string.Join(", ", validModels));
                 return 1;
             }
 
             var engineProvider = services.GetRequiredService<ITtsEngineProvider>();
-            var result = engineProvider.SwitchModel(modelType);
+            var result = await engineProvider.SwitchModelAsync(model.Id, cancellationToken);
 
             if (result.IsFailure)
             {
@@ -35,7 +37,7 @@ public static class SetModelCommand
                 return 1;
             }
             
-            Terminal.Success($"Successfully switched active model to: {modelType}");
+            Terminal.Success($"Successfully switched active model to: {model.Id}");
             return 0;
         });
 

@@ -3,7 +3,7 @@
 > **Repository**: **Moon-TTS-CS**  
 > **Target Framework**: .NET 10.0 (100% Native AOT Compiled)  
 > **UI Framework**: Avalonia UI 11.2 (Fluent / Cross-Platform Desktop / Software Rendering / Single-Instance)  
-> **Neural Engine**: Kokoro TTS (ONNX Runtime via KokoroSharp)  
+> **Speech Engines**: Out-of-process workers discovered at runtime over a binary IPC protocol (any language; a Kokoro ONNX worker ships in `Engines/Kokoro`)  
 > **Audio Architecture**: Zero-Copy PCM Streaming, Dual-Device Output, Virtual Loopback Microphone, SIMD DSP  
 
 ---
@@ -48,7 +48,7 @@ flowchart TD
     subgraph Infrastructure Layer
         InfraAudio["Audio Subsystem\n(Linux / Mac / Windows / SIMD)"]
         InfraOS["OS Integration & Hooks\n(Wayland DBus / X11 / Win32 / Cocoa)"]
-        InfraTTS["Neural TTS Engine\n(Kokoro ONNX / KokoroSharp)"]
+        InfraTTS["Engine Host\n(EngineCatalog / EngineProcess / ExternalTtsEngine)"]
         InfraDaemon["IPC Daemon Subsystem\n(Named Pipes / Unix Domain Sockets)"]
         InfraPersist["Persistence\n(JsonConfigurationRepository)"]
     end
@@ -100,7 +100,10 @@ flowchart TD
 
 ### 3.1 Solution Root
 * **Directory.Build.targets**: Central MSBuild properties and build targets across all solution projects.
-* **MoonTTS.slnx**: Solution definition linking Domain, Core, Infrastructure, Avalonia, and CLI.
+* **MoonTTS.slnx**: Solution definition linking Domain, Core, Infrastructure, Engine.Protocol, Avalonia, and CLI.
+* **MoonTTS.Engine.Protocol/**: Public engine IPC contract shared by the host and C# engine workers (see 3.7).
+* **Engines/**: Source of out-of-process engine workers. They are not part of `MoonTTS.slnx`; each is published into the user's engines folder (see 3.8).
+* **IPC-engine-model.md**: Specification of the engine IPC protocol, manifests and discovery.
 * **README.md**: Project overview and quickstart guide.
 
 ---
@@ -124,28 +127,28 @@ The foundational domain layer containing pure domain models, business logic cont
 * **MoonTTS.Domain/Entities/HistoryEntry.cs**: Entity representing a recorded speech event with a unique ID, trimmed text preview, timestamp, and associated WAV audio file reference (`WavFileName`).
 * **MoonTTS.Domain/Entities/HotkeyEntry.cs**: Entity mapping a key combination string to a pre-synthesized audio phrase.
 * **MoonTTS.Domain/Entities/HotkeyProfile.cs**: Entity representing an isolated hotkey soundboard profile with its isolated folder name on disk.
-* **MoonTTS.Domain/Entities/KokoroEngineConfig.cs**: Engine-specific configuration entity storing the selected Kokoro voice ID and baseline speech speed.
+* **MoonTTS.Domain/Entities/EngineConfig.cs**: Per-model preferences (selected voice ID and baseline speech speed), persisted for each **ModelId**.
 * **MoonTTS.Domain/Entities/ProfileDataStore.cs**: Persistence container holding the list of all configured profiles and the name of the currently active profile.
 
-#### Enums & Constants
-* **MoonTTS.Domain/Enums/KokoroVoiceId.cs**: Enumeration of all built-in Kokoro voice weights (American/British female & male voices: `af_heart`, `am_adam`, `bf_emma`, etc.).
-* **MoonTTS.Domain/Enums/TtsModelType.cs**: Enumeration of supported TTS neural models (`Kokoro`, `Kokoro_fp16`, `Kokoro_zh_fp16`).
+#### Constants
 * **MoonTTS.Domain/Constants/AppConstants.cs**: Solution-wide boundaries and limits (e.g. maximum history entries, maximum hotkey bindings).
 
 #### Value Objects
-* **MoonTTS.Domain/ValueObjects/ModelMetadata.cs**: Immutable metadata describing a neural model (model type, display name, description, file requirements, download URLs, and sizes).
+* **MoonTTS.Domain/ValueObjects/ModelMetadata.cs**: Immutable metadata describing a downloadable model of an installed engine (**ModelId**, display name, local file name to download URL map).
+* **MoonTTS.Domain/ValueObjects/ModelId.cs**: Value object identifying a model as `<engineId>/<modelName>`; its default value is `Unselected`. Persisted as a string through `ModelIdJsonConverter`.
+* **MoonTTS.Domain/ValueObjects/EngineDescriptor.cs**: An installed engine: id, display name, folder, worker executable path and its models.
+* **MoonTTS.Domain/ValueObjects/VoiceInfo.cs**: A voice offered by a model (id, optional name and language) with a display label for selection lists.
 * **MoonTTS.Domain/ValueObjects/ShortcutCombo.cs**: Immutable value object parsing and validating key combinations (Ctrl, Alt, Shift, Win + Main Key) with equality comparison and standard string formatting.
 
 #### Interfaces
 * **MoonTTS.Domain/Interfaces/IAudioPlayer.cs**: Contract for cross-platform audio playback, device enumeration, dual output sink targeting, volume attenuation, pause/resume, and strongly-typed raw PCM streaming (`StreamPcmAsync`, `PlayPcmAsync`).
-* **MoonTTS.Domain/Interfaces/IEngineConfig.cs**: Marker interface for polymorphic engine-specific settings.
 * **MoonTTS.Domain/Interfaces/IGlobalShortcutHook.cs**: Contract for platform-specific global keyboard hook services.
 * **MoonTTS.Domain/Interfaces/IModelDownloader.cs**: Contract for streaming chunked downloads of neural model ONNX weights and voice files.
-* **MoonTTS.Domain/Interfaces/IModelRegistry.cs**: Contract cataloging supported models and their downloadable file assets.
+* **MoonTTS.Domain/Interfaces/IModelRegistry.cs**: Contract cataloging the models of the installed engines, resolving user input to a model (`FindModel`) and looking up the owning **EngineDescriptor**.
 * **MoonTTS.Domain/Interfaces/IConfigurationRepository.cs**: Centralized contract for persisting and retrieving application settings, engine configurations, phonetic dictionary rules, soundboard profiles, hotkeys, and speech history, along with granular change notification events.
 * **MoonTTS.Domain/Interfaces/ISpeechPipeline.cs**: Central contract orchestrating dictionary preprocessing, parallel sentence synthesis, audio streaming, history capture, and cancellation.
 * **MoonTTS.Domain/Interfaces/ITtsEngine.cs**: Contract implemented by neural TTS backends for text-to-PCM stream generation, voice management, and format description.
-* **MoonTTS.Domain/Interfaces/ITtsEngineFactory.cs**: Factory contract producing initialized **ITtsEngine** instances.
+* **MoonTTS.Domain/Interfaces/ITtsEngineFactory.cs**: Factory contract asynchronously producing fully initialized **ITtsEngine** instances for a **ModelId** (`CreateAsync`).
 * **MoonTTS.Domain/Interfaces/ITtsEngineProvider.cs**: State holder providing the currently active TTS engine and managing model switching.
 
 ---
@@ -160,12 +163,12 @@ The application service layer implementing business workflows, coordinating mana
 * **MoonTTS.Core/Services/DictionaryManager.cs**: High-performance word substitution engine. Manages entries via **IConfigurationRepository**, compiling words sorted by descending length into a single unified regex with word boundary detection (`\b`) for O(N) single-pass text preprocessing.
 * **MoonTTS.Core/Services/HistoryManager.cs**: Manages audio history cache. Enforces maximum entry limits (`MaxHistoryEntries`), persists metadata via **IConfigurationRepository**, writes generated master WAV files to `audio/history/`, purges oldest files upon overflow, and replays history audio via **FormatReader** and **IAudioPlayer**.
 * **MoonTTS.Core/Services/ProfileManager.cs**: Manages hotkey soundboard profiles and profile switching through **IConfigurationRepository**, sanitizing profile folder names and guaranteeing a valid `Default` fallback profile.
-* **MoonTTS.Core/Services/TtsEngineProvider.cs**: Manages active engine lifetime. Dynamically resolves engines via **ITtsEngineFactory**, validates model availability with **DownloadManager**, and gracefully falls back to **EmptyTtsEngine** if models are unselected or missing.
-* **MoonTTS.Core/Services/DownloadManager.cs**: Orchestrates model file verification, chunked downloading with progress reporting, and safe file deletion (preventing deletion of shared voice tensors used by other models), resolving directories via **IConfigurationRepository** and **PathResolver**.
+* **MoonTTS.Core/Services/TtsEngineProvider.cs**: Manages active engine lifetime. Asynchronously resolves engines via **ITtsEngineFactory** (`GetEngineAsync` lazily loads the model selected in settings; `SetEngineAsync` / `SwitchModelAsync` swap it under a lock), validates model availability with **DownloadManager**, falls back to **EmptyTtsEngine** if models are unselected or missing, and disposes the active engine (shutting its worker down) on dispose.
+* **MoonTTS.Core/Services/DownloadManager.cs**: Orchestrates model file verification, chunked downloading with progress reporting, and safe file deletion (preventing deletion of shared voice tensors used by other models), storing each engine's files in its own `<models directory>/<engineId>/` folder resolved by **SettingsManager.GetModelDirectory**.
 
 #### Utilities & Helpers
 * **MoonTTS.Core/Utilities/FormatReader.cs**: Extracts audio format parameters (`SampleRate`, `Channels`, `BitDepth`) dynamically from standard RIFF/WAV headers (`byte[]` or `ReadOnlySpan<byte>`), avoiding hardcoded engine format assumptions.
-* **MoonTTS.Core/Utilities/PathResolver.cs**: Resolves platform-specific configuration and model directories (`~/.config/moontts` on Linux, `%APPDATA%\moontts` on Windows).
+* **MoonTTS.Core/Utilities/PathResolver.cs**: Resolves platform-specific configuration, model and engine directories (`~/.config/Moon-TTS` and `~/.local/share/Moon-TTS/{models,engines}` on Linux, `%APPDATA%\Moon-TTS` on Windows, `~/Library/Application Support/Moon-TTS` on macOS).
 * **MoonTTS.Core/Utilities/PathSanitizer.cs**: Sanitizes user-provided profile names to create safe disk directories across OS file systems.
 * **MoonTTS.Core/Utilities/TextSplitter.cs**: Splits lengthy sentences by punctuation delimiters (`.`, `!`, `?`, `;`, `,`) to enable low-latency sentence-by-sentence streaming.
 * **MoonTTS.Core/Utilities/WavWriter.cs**: Writes standard 44-byte RIFF/WAVE headers for raw 16-bit PCM byte spans without allocating intermediate stream overhead.
@@ -188,12 +191,14 @@ Low-level adapters implementing system-level functionality for audio drivers, OS
 * **MoonTTS.Infrastructure/Audio/MacOS/MacAudioPlayer.cs**: macOS audio player adapter using CoreAudio / `afplay`.
 * **MoonTTS.Infrastructure/Audio/MacOS/MacCoreAudioApi.cs**: Interop declarations for macOS CoreAudio device management.
 
-#### Neural TTS Subsystem
-* **MoonTTS.Infrastructure/Tts/KokoroOnnxEngine.cs**: Native implementation of **ITtsEngine** wrapping Microsoft ONNX Runtime and `KokoroSharp.KokoroWavSynthesizer`. Synthesizes raw 24kHz 16-bit PCM and applies in-place SIMD de-clicking. Uses strongly-typed generic `Enum.TryParse<KokoroVoiceId>` for AOT-compliant voice resolution.
-* **MoonTTS.Infrastructure/Tts/TtsEngineFactory.cs**: Factory producing concrete **KokoroOnnxEngine** or **EmptyTtsEngine**.
-* **MoonTTS.Infrastructure/Tts/SupportedModelRegistry.cs**: Hardcoded catalog of official model releases (Kokoro v1.0, Kokoro v1.0 fp16, Kokoro v1.1-zh Chinese/English) with HuggingFace download endpoints and file maps.
+#### Engine Host Subsystem
+* **MoonTTS.Infrastructure/Tts/EngineCatalog.cs**: **IModelRegistry** implementation that scans `<data>/Moon-TTS/engines/<Name>/engine.json` and builds **EngineDescriptor** / **ModelMetadata** entries. Invalid manifests are reported and skipped; no engine is referenced by host code.
+* **MoonTTS.Infrastructure/Tts/EngineVoiceStore.cs**: Reads and atomically writes the per-engine `voices.json` (voices per model). Missing entries are filled from the worker's `ListVoices` reply.
+* **MoonTTS.Infrastructure/Tts/EngineProcess.cs**: Owns one worker process and its stdin/stdout binary channel. Runs one exchange at a time, streams `AudioChunk` frames as `ReadOnlyMemory<byte>`, drains the stream after a `Cancel` (or an abandoned enumeration) so the channel never desyncs, forwards worker stderr to the host log, and kills unresponsive workers.
+* **MoonTTS.Infrastructure/Tts/ExternalTtsEngine.cs**: Generic **ITtsEngine** for every installed engine. Starts the worker, validates `MetadataResponse` (engine id, PCM format), sends `LoadModel`, resolves voices (voices.json first, IPC otherwise), persists voice/speed per **ModelId** and restarts a crashed worker on the next request.
+* **MoonTTS.Infrastructure/Tts/EngineWorkerException.cs**: Error raised for worker `Error` frames, crashes and protocol violations.
+* **MoonTTS.Infrastructure/Tts/TtsEngineFactory.cs**: Factory producing **ExternalTtsEngine** for any installed model, or **EmptyTtsEngine** when no model is selected.
 * **MoonTTS.Infrastructure/Tts/HttpModelDownloader.cs**: Implements chunked HTTP file streaming with progress calculation and cancellation support.
-* **MoonTTS.Infrastructure/Tts/ModelLibrary.cs**: File system verification scanner for locally downloaded model weights.
 
 #### OS Global Shortcut Hooks
 * **MoonTTS.Infrastructure/OS/GlobalShortcutManager.cs**: Cross-platform shortcut hook coordinator. Detects Wayland (`XDG_SESSION_TYPE=wayland`), X11, macOS, or Windows, and instantiates the matching hook implementation.
@@ -258,23 +263,47 @@ The terminal command-line application built with first-party **System.CommandLin
 
 ---
 
+### 3.7 MoonTTS.Engine.Protocol (`MoonTTS.Engine.Protocol/`)
+The public, dependency-free contract between the host and engine workers. Workers written in other languages implement the same framing described in **IPC-engine-model.md**.
+* **MoonTTS.Engine.Protocol/EngineOpcode.cs**: Opcodes of the protocol (`Ping`, `GetMetadata`, `ListVoices`, `LoadModel`, `Synthesize`, `AudioChunk`, `EndOfStream`, `Cancel`, `Error`, `Shutdown`, and their replies).
+* **MoonTTS.Engine.Protocol/EngineFrame.cs**: A decoded frame (opcode, flags, payload).
+* **MoonTTS.Engine.Protocol/EngineIpcProtocol.cs**: 8-byte header framing (`'M' 'T'`, opcode, flags, big-endian uint32 length) with 32 MB payload guard, JSON frame helpers and clean end-of-stream detection.
+* **MoonTTS.Engine.Protocol/Messages.cs**: JSON payload DTOs (`EngineMetadataMessage`, `LoadModelRequest`, `VoicesResponse`, `SynthesizeRequest`, `EngineErrorMessage`).
+* **MoonTTS.Engine.Protocol/Manifests.cs**: On-disk files of an engine folder (`engine.json` → `EngineManifest`, `voices.json` → `VoiceCatalogFile`).
+* **MoonTTS.Engine.Protocol/EngineProtocolJsonContext.cs**: AOT source-generated JSON context (camelCase) for every payload and manifest.
+
+---
+
+### 3.8 Engine Workers (`Engines/`)
+Standalone executables that are never linked into the host. Each is published into the engines folder.
+* **Engines/Kokoro/MoonTTS.Engine.Kokoro.csproj**: Kokoro ONNX worker (`kokoro-worker`, Native AOT) referencing `KokoroSharp`, `Microsoft.ML.OnnxRuntime` and **MoonTTS.Engine.Protocol**. Install with `dotnet publish Engines/Kokoro -o ~/.local/share/Moon-TTS/engines/Kokoro`.
+* **Engines/Kokoro/engine.json**: Manifest declaring the `kokoro` engine and its `kokoro-v1.0`, `kokoro-v1.0-fp16` and `kokoro-v1.1-zh-fp16` models with their download URLs.
+* **Engines/Kokoro/Program.cs**: Worker entrypoint; redirects console output to stderr and runs the frame loop until `Shutdown` or end of stdin.
+* **Engines/Kokoro/KokoroWorker.cs**: Protocol handler: metadata (24 kHz mono 16-bit), model loading, background synthesis with cancellation, and in-place de-clicking of each rendered sentence.
+* **Engines/Kokoro/KokoroVoices.cs**: Kokoro voice presets with names and languages derived from their id prefix, returned by `ListVoices`.
+
+---
+
 ## 4. Class Dependencies & Relationship
 
 | Class                           | Injected Dependencies                                                                          | Interfaces Implemented                 | Collaborators / Calls                                                   |
 | :------------------------------ | :--------------------------------------------------------------------------------------------- | :------------------------------------- | :---------------------------------------------------------------------- |
 | **SpeechPipeline**              | `ITtsEngineProvider`, `DictionaryManager`, `HistoryManager`, `SettingsManager`, `IAudioPlayer` | **ISpeechPipeline**                    | `TextSplitter`, `WavWriter`, `Channel<T>`, `ITtsEngine`                 |
-| **SettingsManager**             | `IConfigurationRepository`                                                                     | None                                   | `AppConfig`, `IEngineConfig`, `PathResolver`                            |
+| **SettingsManager**             | `IConfigurationRepository`                                                                     | None                                   | `AppConfig`, `EngineConfig`, `ModelId`, `PathResolver`                  |
 | **HotkeyManager**               | `ISpeechPipeline`, `IAudioPlayer`, `IConfigurationRepository`                                   | None                                   | `HotkeyEntry`, `ShortcutCombo`, `PathResolver`, `FormatReader`          |
 | **DictionaryManager**           | `IConfigurationRepository`                                                                     | None                                   | `DictionaryEntry`, `Regex`                                              |
 | **HistoryManager**              | `IAudioPlayer`, `IConfigurationRepository`                                                     | None                                   | `HistoryEntry`, `PathResolver`, `FormatReader`                          |
 | **ProfileManager**              | `IConfigurationRepository`                                                                     | None                                   | `ProfileDataStore`, `HotkeyProfile`, `PathSanitizer`, `PathResolver`    |
 | **TtsEngineProvider**           | `ITtsEngineFactory`, `SettingsManager`, `DownloadManager`, `IModelRegistry`                    | **ITtsEngineProvider**                 | `ITtsEngine`, `EmptyTtsEngine`                                          |
-| **DownloadManager**             | `IModelRegistry`, `IModelDownloader`, `IConfigurationRepository`                                | None                                   | `ModelMetadata`, `TtsModelType`                                         |
-| **KokoroOnnxEngine**            | `SettingsManager`, `TtsModelType`                                                              | **ITtsEngine**                         | `KokoroWavSynthesizer`, `SimdAudioProcessor`, `KokoroVoiceManager`      |
+| **DownloadManager**             | `IModelRegistry`, `IModelDownloader`, `SettingsManager`                                        | None                                   | `ModelMetadata`, `ModelId`                                              |
+| **EngineCatalog**               | None                                                                                           | **IModelRegistry**                     | `EngineManifest`, `EngineDescriptor`, `ModelMetadata`, `PathResolver`   |
+| **TtsEngineFactory**            | `IModelRegistry`, `SettingsManager`, `DownloadManager`, `EngineVoiceStore`                     | **ITtsEngineFactory**                  | `ExternalTtsEngine`, `EmptyTtsEngine`                                   |
+| **ExternalTtsEngine**           | `EngineDescriptor`, `ModelMetadata`, `SettingsManager`, `EngineVoiceStore`                     | **ITtsEngine**                         | `EngineProcess`, `EngineIpcProtocol`, `WavWriter`                       |
+| **EngineProcess**               | `EngineDescriptor`                                                                             | `IDisposable`                          | `Process`, `EngineIpcProtocol`, `EngineFrame`                           |
 | **LinuxAudioPlayer**            | None                                                                                           | **IAudioPlayer**                       | `LinuxAudioStreamer`, `LinuxVirtualMicService`, `LinuxDeviceEnumerator` |
 | **WaylandShortcutHook**         | None                                                                                           | **IGlobalShortcutHook**, `IDisposable` | `Tmds.DBus.Protocol.Connection`, `MessageWriter`, `MessageReader`       |
 | **WindowService**               | `MainWindow`, `IClassicDesktopStyleApplicationLifetime`, `SettingsManager`, `IAudioPlayer`, `DownloadManager`, `DictionaryManager`, `HotkeyManager`, `HistoryManager`, `ITtsEngineProvider` | **IWindowService**                     | `MainWindow`, `SettingsWindow`, `SettingsViewModel`, `PixelPoint`, `Screens` |
-| **SettingsViewModel**            | `SettingsManager`, `IAudioPlayer`, `IWindowService`, `DownloadManager`, `DictionaryManager?`, `HotkeyManager?`, `HistoryManager?`, `ITtsEngineProvider?`                                    | None                                   | `ModelStatusItem`, `AudioDeviceInfo`, `DictionaryEntry`, `HotkeyEntry`, `HistoryEntry`, `ShortcutCombo`, `KokoroEngineConfig` |
+| **SettingsViewModel**            | `SettingsManager`, `IAudioPlayer`, `IWindowService`, `DownloadManager`, `DictionaryManager?`, `HotkeyManager?`, `HistoryManager?`, `ITtsEngineProvider?`                                    | None                                   | `ModelStatusItem`, `AudioDeviceInfo`, `DictionaryEntry`, `HotkeyEntry`, `HistoryEntry`, `ShortcutCombo`, `ModelMetadata`, `VoiceInfo`, `EngineConfig` |
 | **SettingsWindow**               | None (DataContext bound to `SettingsViewModel`)                                                | None                                   | `SettingsViewModel`, `MainWindow`, `ShortcutCombo`, `KeyEventArgs`      |
 | **SingleInstanceService**       | `IWindowService`                                                                               | `IDisposable`                          | `NamedPipeServerStream`, `NamedPipeClientStream`                        |
 | **MainViewModel**               | `ISpeechPipeline`, `IWindowService`, `HotkeyManager`                                           | None                                   | `RelayCommand`, CommunityToolkit.Mvvm                                   |
@@ -298,8 +327,8 @@ sequenceDiagram
     participant Pipe as SpeechPipeline
     participant Dict as DictionaryManager
     participant Split as TextSplitter
-    participant Engine as KokoroOnnxEngine
-    participant SIMD as SimdAudioProcessor
+    participant Engine as ExternalTtsEngine
+    participant Worker as Engine Worker (process)
     participant Player as LinuxAudioPlayer
     participant Streamer as LinuxAudioStreamer
     participant Sink1 as Primary Sink (Speakers)
@@ -316,7 +345,8 @@ sequenceDiagram
     par Synthesis Producer Task
         loop For Each Sentence
             Pipe->>Engine: SynthesizeStreamAsync(sentence)
-            Engine->>SIMD: ApplyDeClickingInPlace(rawPcm)
+            Engine->>Worker: Synthesize frame (JSON)
+            Worker-->>Engine: AudioChunk frames (raw PCM) + EndOfStream
             Engine-->>Pipe: Yield chunk
             Pipe->>Pipe: channel.Writer.WriteAsync(chunk)
         end
@@ -337,7 +367,7 @@ sequenceDiagram
 1. **Dictionary Transformation**: The raw string is passed to **DictionaryManager.ReplaceText**. It uses a precompiled single-pass regex to replace slang/acronyms with phonetic pronunciations.
 2. **Sentence Pipelining**: If the text exceeds 80 characters, **TextSplitter.SplitIntoSentences** divides it into sentence fragments.
 3. **Producer Task**: A bounded asynchronous channel (`BoundedChannelOptions(2)`) is created. A background task iterates through the sentences, querying **ITtsEngine.SynthesizeStreamAsync**.
-4. **SIMD Audio Conditioning**: As each sentence finishes neural inference in **KokoroOnnxEngine**, **SimdAudioProcessor.ApplyDeClickingInPlace** applies a 3ms fade-in and 5ms fade-out curve to the PCM boundary to eliminate audio clicks.
+4. **Out-of-Process Synthesis**: **ExternalTtsEngine** sends a `Synthesize` frame to the engine worker and yields every `AudioChunk` payload as it arrives, using the PCM format the worker declared in its metadata. Engine-specific conditioning (e.g. the Kokoro worker's 3ms fade-in / 5ms fade-out de-clicking) happens inside the worker. Cancelling the pipeline sends a `Cancel` frame and drains the stream.
 5. **Dual-Sink Streaming**: As soon as the first chunk is written to the channel, **LinuxAudioPlayer.StreamPcmAsync** reads it and pipes raw PCM bytes simultaneously into the `stdin` streams of two child processes (`pw-play` or `paplay`), applying live volume scaling without intermediate WAV transcoding.
 6. **WAV Accumulation & History**: Concurrently, chunks are written into an in-memory accumulator. Once all sentences complete, **WavWriter.CreateWav** stamps a standard 44-byte RIFF header, storing the clip in **HistoryManager**.
 
@@ -347,7 +377,7 @@ sequenceDiagram
 * **Storage Location**: Stored as JSON files in **PathResolver.GetConfigDirectory()** (`settings.json` and polymorphic engine configurations in `engine configurations/<engine>.json`).
 * **Persistence & Caching**: **JsonConfigurationRepository** acts as the unified state store, caching configurations in memory and executing thread-safe, atomic file writes using `.tmp` files and `File.Move` alongside AOT-compiled serialization via **AppJsonContext**.
 * **Facade & Notification Flow**: **SettingsManager** serves as an application facade over **IConfigurationRepository**. Changes to application configuration, engine options, or audio parameters propagate via granular events (`AppConfigChanged`, `EngineConfigChanged`, `DictionaryChanged`, `HotkeysChanged`, `ProfilesChanged`, `HistoryChanged`) and trigger hot-reloading across UI and audio subsystems.
-* **Live In-Memory Hot-Reload**: Switching the active model (`ITtsEngineProvider.SwitchModel(model)`) or updating active voice (`ITtsEngine.ActiveVoice = voice`) and speed (`ITtsEngine.Speed = speed`) takes effect immediately in memory on the active neural engine. The unified `ITtsEngineProvider` singleton guarantees that changes made in the settings view immediately govern subsequent `SpeechPipeline.SpeakAsync` calls without requiring an application restart.
+* **Live In-Memory Hot-Reload**: Switching the active model (`ITtsEngineProvider.SwitchModelAsync(model)`) or updating active voice (`ITtsEngine.ActiveVoice = voice`) and speed (`ITtsEngine.Speed = speed`) takes effect immediately in memory on the active neural engine. The unified `ITtsEngineProvider` singleton guarantees that changes made in the settings view immediately govern subsequent `SpeechPipeline.SpeakAsync` calls without requiring an application restart.
 
 ---
 
@@ -412,14 +442,12 @@ sequenceDiagram
 
 ---
 
-### 5.7 Model Download & Engine Switching Workflow
-* **Registry**: **SupportedModelRegistry** catalogs official releases:
-  - `Kokoro` (v1.0 FP32, ~325 MB ONNX)
-  - `Kokoro_fp16` (v1.0 FP16, ~160 MB ONNX)
-  - `Kokoro_zh_fp16` (v1.1 Chinese/English FP16, ~170 MB ONNX)
-* **Download**: **DownloadManager.DownloadModelAsync** streams model weights and voice tensors from HuggingFace to the configured models directory with progress reporting.
-* **Deletion Safety**: When deleting a model, **DownloadManager.DeleteModel** verifies whether any files are shared with other installed models before removing them.
-* **Switching**: **TtsEngineProvider.SwitchModel** disposes the active ONNX inference session and re-instantiates **KokoroOnnxEngine** with the new weights.
+### 5.7 Engine Discovery, Model Download & Engine Switching Workflow
+* **Discovery**: **EngineCatalog** scans the engines folder (`~/.local/share/Moon-TTS/engines/` on Linux, `%APPDATA%\Moon-TTS\engines\` on Windows, `~/Library/Application Support/Moon-TTS/engines/` on macOS). Every sub folder with a valid `engine.json` becomes an engine; its models are addressed as `<engineId>/<modelId>` (e.g. `kokoro/kokoro-v1.0-fp16`). Installing an engine only requires dropping its folder in place; no host code changes.
+* **Download**: **DownloadManager.DownloadModelAsync** streams the files listed in the model's `downloadFiles` into `<models directory>/<engineId>/` with progress reporting.
+* **Deletion Safety**: When deleting a model, **DownloadManager.DeleteModel** verifies whether any files are shared with other installed models of the same engine before removing them.
+* **Switching**: **TtsEngineProvider.SwitchModelAsync** asks **TtsEngineFactory** for a new **ExternalTtsEngine**: the worker is started, answers `GetMetadata`, loads the model on `LoadModel` and its voices are read from `voices.json` (or requested with `ListVoices` and written to `voices.json`). The previous engine is disposed, which closes its worker's stdin so it exits.
+* **Crash Isolation**: A crashing worker never takes the host down; the error surfaces as a failed speech result and the worker is restarted on the next request.
 
 ---
 
@@ -468,7 +496,7 @@ sequenceDiagram
 * **History Audio Replay**:
   - Enables one-click preview and playback (`▶`) of previous speech synthesis outputs directly from the history tab via **HistoryManager.PlayEntryAsync(id)**.
 * **Dynamic Engine Management**:
-  - Scans model installation status via **DownloadManager.IsModelDownloaded(modelType)**, rendering `✓ Installed` badges and Delete buttons for active weights, while offering Download buttons with live progress bars for missing models.
+  - Lists the models of every installed engine and scans their installation status via **DownloadManager.IsModelDownloaded(modelId)**, rendering `✓ Installed` badges and Delete buttons for active weights, while offering Download buttons with live progress bars for missing models.
 
 ---
 
@@ -479,17 +507,12 @@ Moon-TTS stores all user configuration, models, and audio artifacts under standa
 ```
 ~/.config/moontts/                      [Base Configuration Directory]
 ├── settings.json                       [Application Settings (AppConfig)]
-├── engine configurations/              [Polymorphic Engine Settings Directory]
-│   ├── Kokoro.json                     [Engine Settings for Kokoro FP32]
-│   ├── Kokoro_fp16.json                [Engine Settings for Kokoro FP16]
+├── engine configurations/              [Per-Model Preferences (EngineConfig)]
+│   ├── <engineId>/
+│   │   ├── <modelId>.json              [Voice and speed for one model]
+│   │   └── ...
 │   └── ...
 ├── dictionary.json                     [Word Substitution Rules]
-├── models/                             [Neural Network Weights & Voices]
-│   ├── kokoro-v1.0.onnx                [ONNX Model Weights]
-│   ├── kokoro-v1.0-fp16.onnx
-│   └── voices/
-│       ├── af_heart.bin                [Voice Tensor Weights]
-│       └── ...
 └── audio/                              [Audio Artifacts]
     ├── history/                        [Generated Speech History]
     │   ├── history.json                [History Metadata]
@@ -501,6 +524,17 @@ Moon-TTS stores all user configuration, models, and audio artifacts under standa
         │   ├── <guid>.wav              [Pre-Rendered Phrase WAVs]
         │   └── hotkeys.json            [Profile Keybindings]
         └── ...
+
+~/.local/share/Moon-TTS/                [Data Directory ($XDG_DATA_HOME)]
+├── engines/                            [Installed Engines, scanned by EngineCatalog]
+│   └── Kokoro/                         [One folder per engine, any name]
+│       ├── engine.json                 [Engine manifest: id, executable, models]
+│       ├── voices.json                 [Voices per model, generated from ListVoices when missing]
+│       ├── kokoro-worker               [Worker executable]
+│       └── voices/                     [Engine-private assets]
+└── models/                             [Downloaded model files (or AppConfig.CustomModelsDirectory)]
+    └── <engineId>/                     [One folder per engine]
+        └── kokoro-v1.0-fp16.onnx
 ```
 
 ---

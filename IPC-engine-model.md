@@ -1,15 +1,15 @@
 # Moon-TTS: Out-of-Process Engine Architecture & IPC Specification
 
-> **Document Version:** 1.0.0  
-> **Status:** Architecture Proposal / Specification  
+> **Document Version:** 1.1.0  
+> **Status:** Implemented (host: `MoonTTS.Engine.Protocol` + `MoonTTS.Infrastructure/Tts`, reference worker: `Engines/Kokoro`)  
 > **Domain:** Local Accessibility & Speech Synthesis Platform  
 
 ---
 
 ## 1. Architectural Vision & Core Goals
 
-### 1.1 The Problem Today
-Currently, `MoonTTS.Infrastructure` directly links speech synthesis engines (specifically `KokoroSharp` and its G2P dependency `MisakiSharp`) into the main application assembly. 
+### 1.1 The Problem (before this architecture)
+Previously, `MoonTTS.Infrastructure` directly linked speech synthesis engines (specifically `KokoroSharp` and its G2P dependency `MisakiSharp`) into the main application assembly. 
 - In **Native AOT**, this forces all static dictionaries (such as `MisakiSharp`'s 67 MB embedded CMUdict) to be permanently baked into the `.rodata` segment of the primary `MoonTTS.Avalonia` and `mtts` binaries.
 - If a user only intends to use a lightweight cloud voice, an OS-native voice (SAPI/SpeechDispatcher), or an alternative local model (e.g., Piper), they are still forced to download and store 70 MB of unused neural dependencies.
 - Third-party contributors wanting to add new engines (e.g., in Python, Rust, C++, or Go) cannot do so without modifying the C# source code and ensuring 100% Native AOT compatibility.
@@ -44,7 +44,7 @@ Decouple Moon-TTS into an **ultra-lean core host (~20 MB)** and **modular, out-o
 2. **Language Independence:** Community contributors can write engine plugins in **any language** (Python, Rust, C++, C#, Go).
 3. **Zero Native AOT Constraints on Plugins:** Plugins do not need to satisfy .NET Native AOT compiler trimming or reflection limits.
 4. **Crash Isolation & Sandboxing:** If a neural engine runs out of VRAM, corrupts memory, or throws a segfault, **Moon-TTS never crashes**. The host detects process termination and can gracefully restart it.
-5. **Drop-in Extensibility:** Users install new engines simply by placing a folder into `~/.local/share/moontts/engines/<id>/`.
+5. **Drop-in Extensibility:** Users install new engines simply by placing a folder into `~/.local/share/Moon-TTS/engines/<Name>/`.
 
 ---
 
@@ -54,7 +54,7 @@ Communication between Moon-TTS and an engine worker runs over standard input/out
 
 ### 2.1 Packet Structure
 
-Every frame sent between Host and Worker follows a fixed 9-byte header:
+Every frame sent between Host and Worker follows a fixed 8-byte header:
 
 ```text
  0                   1                   2                   3
@@ -84,16 +84,26 @@ Every frame sent between Host and Worker follows a fixed 9-byte header:
 | :---: | :--- | :---: | :--- | :--- |
 | `0x01` | `Ping` | Host $\to$ Worker | None | Liveness heartbeat check. |
 | `0x02` | `Pong` | Worker $\to$ Host | None | Heartbeat response. |
-| `0x10` | `GetMetadata` | Host $\to$ Worker | None | Requests engine capabilities, supported sample rates, voices. |
-| `0x11` | `MetadataResponse` | Worker $\to$ Host | JSON (UTF-8) | Engine capabilities and supported configurations. |
-| `0x12` | `ListVoices` | Host $\to$ Worker | None | Requests available voice IDs and descriptions. |
+| `0x10` | `GetMetadata` | Host $\to$ Worker | None | Requests engine identity and the PCM format it emits. |
+| `0x11` | `MetadataResponse` | Worker $\to$ Host | JSON (UTF-8) | Engine capabilities and audio format. |
+| `0x12` | `ListVoices` | Host $\to$ Worker | None | Requests the voices of the loaded model. |
 | `0x13` | `VoicesResponse` | Worker $\to$ Host | JSON (UTF-8) | Array of voice descriptors. |
+| `0x14` | `LoadModel` | Host $\to$ Worker | JSON (UTF-8) | Loads a model from the host's model directory. |
+| `0x15` | `ModelLoaded` | Worker $\to$ Host | None | The model is ready for synthesis. |
 | `0x20` | `Synthesize` | Host $\to$ Worker | JSON (UTF-8) | Speech request (text, voice ID, speed, pitch). |
-| `0x21` | `AudioChunk` | Worker $\to$ Host | Binary PCM | Streamed raw PCM audio chunk (16-bit signed, mono). |
+| `0x21` | `AudioChunk` | Worker $\to$ Host | Binary PCM | Streamed raw PCM audio chunk in the format declared by the metadata. |
 | `0x22` | `EndOfStream` | Worker $\to$ Host | None | Indicates completion of the current synthesis stream. |
-| `0x23` | `Cancel` | Host $\to$ Worker | None | Immediately aborts the current synthesis job. |
+| `0x23` | `Cancel` | Host $\to$ Worker | None | Aborts the current synthesis job. No direct reply. |
 | `0xFE` | `Error` | Worker $\to$ Host | JSON (UTF-8) | Error payload with code and human-readable message. |
 | `0xFF` | `Shutdown` | Host $\to$ Worker | None | Graceful termination signal. |
+
+**Exchange rules**
+- The host runs one exchange at a time. Every request is answered by exactly one terminal frame: its reply opcode, `EndOfStream` for `Synthesize`, or `Error`.
+- `Synthesize` is answered by zero or more `AudioChunk` frames followed by `EndOfStream` (or `Error`).
+- After `Cancel` the worker must still finish the active stream with `EndOfStream` (or `Error`). A `Cancel` that arrives when no synthesis is running is ignored.
+- Workers must exit when they receive `Shutdown` or when stdin reaches end of file (the host closes stdin when it disposes an engine or exits).
+- stdout carries only protocol frames. Diagnostics go to stderr, which the host forwards to its log.
+- Workers should emit click-free audio (e.g. short fades at sentence boundaries); the host plays chunks as-is.
 
 ---
 
@@ -118,158 +128,133 @@ Every frame sent between Host and Worker follows a fixed 9-byte header:
 }
 ```
 
+#### `0x14: LoadModel` (JSON)
+```json
+{
+  "modelId": "kokoro-v1.0-fp16",
+  "modelDirectory": "/home/user/.local/share/Moon-TTS/models/kokoro",
+  "files": ["kokoro-v1.0-fp16.onnx"]
+}
+```
+`files` are the keys of the model's `downloadFiles` in `engine.json`, already downloaded into `modelDirectory`.
+
+#### `0x13: VoicesResponse` (JSON)
+```json
+{
+  "voices": [
+    { "id": "af_heart", "name": "Heart", "language": "en-US" },
+    { "id": "bm_george", "name": "George", "language": "en-GB" }
+  ]
+}
+```
+
+#### `0xFE: Error` (JSON)
+```json
+{ "code": "model_not_found", "message": "No .onnx file was found." }
+```
+
 #### `0x20: Synthesize` (JSON)
 ```json
 {
   "text": "Hello world, this is accessibility speech synthesis.",
   "voiceId": "af_heart",
   "speed": 1.0,
-  "pitch": 1.0,
-  "streamChunks": true
+  "pitch": 1.0
 }
 ```
 
 #### `0x21: AudioChunk` (Binary)
-- **Header:** Standard 9-byte packet header (`Opcode = 0x21`).
-- **Payload:** Raw, uncompressed PCM audio bytes (16-bit little-endian samples).
+- **Header:** Standard 8-byte packet header (`Opcode = 0x21`).
+- **Payload:** Raw, uncompressed PCM audio bytes (little-endian signed samples, in the format declared by `MetadataResponse`).
 - **Latency Rule:** The worker emits chunks as soon as a phonetic clause or sentence is rendered (typically 100ms–250ms of audio per chunk) to achieve instant playback start.
 
 ---
 
 ## 3. Plugin Discovery & Manifest Format
 
-Engines are discovered dynamically at startup by scanning standard platform directories:
-- **Linux:** `~/.local/share/moontts/engines/` and `/usr/share/moontts/engines/`
-- **Windows:** `%LocalAppData%/MoonTTS/engines/`
-- **macOS:** `~/Library/Application Support/MoonTTS/engines/`
+Engines are discovered dynamically at startup by scanning the platform engines directory:
+- **Linux:** `$XDG_DATA_HOME/Moon-TTS/engines/` (default `~/.local/share/Moon-TTS/engines/`)
+- **Windows:** `%AppData%/Moon-TTS/engines/`
+- **macOS:** `~/Library/Application Support/Moon-TTS/engines/`
+
+Every sub folder containing an `engine.json` is an engine. The folder name is free; the engine is identified by the manifest `id`. Model files are not stored in the engine folder: the host downloads them into `<models directory>/<engineId>/` (honouring the user's custom models directory) and passes that path in `LoadModel`.
 
 ### 3.1 Folder Structure
 ```text
-~/.local/share/moontts/engines/
-├── piper/
+~/.local/share/Moon-TTS/engines/
+├── Piper/
 │   ├── engine.json            (Plugin manifest)
-│   ├── bin/
-│   │   └── piper-worker       (Executable)
-│   └── models/
-│       ├── en_US-lessac.onnx
-│       └── en_US-lessac.json
-└── kokoro/
+│   ├── voices.json            (Optional, generated by the host when missing)
+│   └── bin/
+│       └── piper-worker       (Executable)
+└── Kokoro/
     ├── engine.json
-    ├── bin/
-    │   └── kokoro-worker
-    └── models/
-        ├── kokoro-v0_19.onnx
-        └── phonemes.bin       (Decoupled pronunciation dictionary)
+    ├── voices.json
+    ├── kokoro-worker
+    └── voices/                (Engine-private assets)
 ```
 
 ### 3.2 Manifest Schema (`engine.json`)
 ```json
 {
-  "$schema": "https://moontts.org/schemas/engine-v1.json",
   "id": "piper-tts",
   "displayName": "Piper Neural Synthesizer",
   "description": "Ultra-fast local neural text-to-speech engine running on ONNX.",
   "version": "1.2.0",
   "executable": "bin/piper-worker",
-  "supportedPlatforms": ["linux-x64", "linux-arm64", "win-x64", "osx-arm64"],
-  "defaultSampleRate": 22050,
-  "channels": 1,
-  "bitDepth": 16,
-  "voices": [
-    { "id": "en_US-lessac-medium", "name": "Lessac (US English, Medium)", "language": "en-US" },
-    { "id": "es_ES-davefx-medium", "name": "Dave (Spanish, Medium)", "language": "es-ES" }
+  "models": [
+    {
+      "id": "en_US-lessac-medium",
+      "displayName": "Lessac (US English, Medium)",
+      "downloadFiles": {
+        "en_US-lessac-medium.onnx": "https://example.org/en_US-lessac-medium.onnx",
+        "en_US-lessac-medium.onnx.json": "https://example.org/en_US-lessac-medium.onnx.json"
+      }
+    }
   ]
 }
 ```
+- `id` must not contain `/`: models are addressed as `<engineId>/<modelId>` (e.g. `piper-tts/en_US-lessac-medium`).
+- `executable` is relative to the engine folder; on Windows `.exe` is appended when the file without extension does not exist. Script workers (`#!/usr/bin/env python3`) work on POSIX systems.
+- `downloadFiles` maps local file names to URLs. A model with no files (e.g. a cloud or OS voice) is always considered downloaded.
+
+### 3.3 Voices (`voices.json`)
+Voices are kept out of `engine.json` so engine authors never have to map them by hand. `voices.json` sits next to the manifest and lists voices per model id:
+```json
+{
+  "models": {
+    "en_US-lessac-medium": [
+      { "id": "lessac", "name": "Lessac", "language": "en-US" }
+    ]
+  }
+}
+```
+When a model has no entry, the host sends `ListVoices` after `LoadModel` and writes the reply into `voices.json` (atomic `.tmp` + rename). Authors can ship or edit the file to override names and languages.
 
 ---
 
-## 4. Host Implementation Design (`MoonTTS.Core`)
+## 4. Host Implementation (`MoonTTS.Engine.Protocol` / `MoonTTS.Infrastructure/Tts`)
 
-### 4.1 New Domain & Core Interfaces
+| Component | Responsibility |
+| :--- | :--- |
+| `EngineIpcProtocol`, `EngineOpcode`, DTOs | Shared framing and JSON payloads (`MoonTTS.Engine.Protocol`, AOT source-generated JSON). |
+| `EngineCatalog : IModelRegistry` | Scans the engines directory and exposes engines and models. |
+| `EngineVoiceStore` | Reads / writes `voices.json`. |
+| `EngineProcess` | Owns the worker process: one exchange at a time, streaming with cancel + drain, kills unresponsive workers, forwards stderr. |
+| `ExternalTtsEngine : ITtsEngine` | Handshake (`GetMetadata` → `LoadModel` → voices), synthesis, per-model voice/speed, restart after a crash. |
+| `TtsEngineFactory : ITtsEngineFactory` | Builds an `ExternalTtsEngine` for any installed model (`EmptyTtsEngine` when unselected). |
 
-In `MoonTTS.Domain/Interfaces`:
-```csharp
-/* Represents an out-of-process engine adapter implementing ITtsEngine */
-public interface IExternalEngineProcess : IDisposable
-{
-    Task StartAsync(CancellationToken cancellationToken);
-    Task<Result<EngineMetadata>> InitializeAsync(CancellationToken cancellationToken);
-    Task<Result<List<string>>> GetVoicesAsync(CancellationToken cancellationToken);
-    IAsyncEnumerable<ReadOnlyMemory<byte>> SynthesizeStreamAsync(string text, SpeechOptions options, CancellationToken ct);
-    Task StopAsync();
-}
-```
-
-### 4.2 Engine Lifecycle Manager (`EngineProcessWorker.cs`)
-
-```csharp
-public class EngineProcessWorker : IExternalEngineProcess
-{
-    private Process? _process;
-    private Stream? _stdin;
-    private Stream? _stdout;
-    private readonly SemaphoreSlim _ioLock = new(1, 1);
-
-    public async Task StartAsync(string executablePath, CancellationToken ct)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = executablePath,
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        _process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to spawn engine worker");
-        _stdin = _process.StandardInput.BaseStream;
-        _stdout = _process.StandardOutput.BaseStream;
-
-        /* Monitor process exit unexpectedly */
-        _process.EnableRaisingEvents = true;
-        _process.Exited += (s, e) => HandleProcessUnexpectedTermination();
-    }
-
-    public async IAsyncEnumerable<ReadOnlyMemory<byte>> SynthesizeStreamAsync(
-        string text, 
-        SpeechOptions options, 
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        await _ioLock.WaitAsync(ct);
-        try
-        {
-            /* 1. Send 0x20 Synthesize Request */
-            await SendPacketAsync(Opcode.Synthesize, JsonSerializer.SerializeToUtf8Bytes(new { text, voice = options.VoiceId }));
-
-            /* 2. Read incoming frames until 0x22 EndOfStream */
-            while (!ct.IsCancellationRequested)
-            {
-                var frame = await ReadPacketAsync(ct);
-                if (frame.Opcode == Opcode.EndOfStream)
-                    yield break;
-
-                if (frame.Opcode == Opcode.AudioChunk)
-                    yield return frame.Payload;
-
-                if (frame.Opcode == Opcode.Error)
-                    throw new InvalidOperationException($"Engine reported error: {Encoding.UTF8.GetString(frame.Payload.Span)}");
-            }
-        }
-        finally
-        {
-            _ioLock.Release();
-        }
-    }
-}
-```
+Startup sequence for one model:
+1. Spawn `executable` with the engine folder as working directory and stdin/stdout/stderr redirected.
+2. `GetMetadata` → `MetadataResponse`; the `engineId` must match the manifest and the audio format must be valid.
+3. `LoadModel` → `ModelLoaded`.
+4. Voices from `voices.json`, otherwise `ListVoices` → `VoicesResponse` (then persisted).
 
 ---
 
 ## 5. Contributor Reference Implementation (Python Template)
 
-A third-party developer can create an engine in under 60 lines of Python using standard library utilities:
+A third-party developer can create an engine in about 50 lines of Python using standard library utilities:
 
 ```python
 #!/usr/bin/env python3
@@ -278,22 +263,25 @@ import struct
 import json
 
 MAGIC = b'\x4D\x54'
-OP_METADATA_REQ = 0x10
-OP_METADATA_RESP = 0x11
-OP_SYNTHESIZE = 0x20
-OP_AUDIO_CHUNK = 0x21
-OP_END_OF_STREAM = 0x22
+OP_GET_METADATA, OP_METADATA = 0x10, 0x11
+OP_LIST_VOICES, OP_VOICES = 0x12, 0x13
+OP_LOAD_MODEL, OP_MODEL_LOADED = 0x14, 0x15
+OP_SYNTHESIZE, OP_AUDIO_CHUNK, OP_END_OF_STREAM = 0x20, 0x21, 0x22
+OP_ERROR, OP_SHUTDOWN = 0xFE, 0xFF
 
 def send_frame(opcode, payload=b''):
-    header = struct.pack('>2sBB I', MAGIC, opcode, 0, len(payload))
+    header = struct.pack('>2sBBI', MAGIC, opcode, 0, len(payload))
     sys.stdout.buffer.write(header + payload)
     sys.stdout.buffer.flush()
+
+def send_json(opcode, obj):
+    send_frame(opcode, json.dumps(obj).encode('utf-8'))
 
 def read_frame():
     header = sys.stdin.buffer.read(8)
     if len(header) < 8:
         return None, None
-    magic, opcode, flags, length = struct.unpack('>2sBB I', header)
+    magic, opcode, flags, length = struct.unpack('>2sBBI', header)
     if magic != MAGIC:
         raise ValueError("Invalid magic bytes")
     payload = sys.stdin.buffer.read(length) if length > 0 else b''
@@ -302,48 +290,42 @@ def read_frame():
 def main():
     while True:
         opcode, payload = read_frame()
-        if opcode is None:
+        if opcode is None or opcode == OP_SHUTDOWN:
             break
 
-        if opcode == OP_METADATA_REQ:
-            metadata = {
+        if opcode == OP_GET_METADATA:
+            send_json(OP_METADATA, {
                 "engineId": "python-tts",
-                "sampleRate": 22050,
-                "voices": ["default"]
-            }
-            send_frame(OP_METADATA_RESP, json.dumps(metadata).encode('utf-8'))
-
+                "engineName": "Python TTS",
+                "version": "1.0.0",
+                "audioFormat": {"sampleRate": 22050, "channels": 1, "bitDepth": 16}
+            })
+        elif opcode == OP_LOAD_MODEL:
+            req = json.loads(payload)
+            # load req["files"] from req["modelDirectory"]
+            send_frame(OP_MODEL_LOADED)
+        elif opcode == OP_LIST_VOICES:
+            send_json(OP_VOICES, {"voices": [{"id": "default", "name": "Default", "language": "en-US"}]})
         elif opcode == OP_SYNTHESIZE:
-            req = json.loads(payload.decode('utf-8'))
-            text = req.get("text", "")
-
-            # Perform synthesis & yield chunks
-            # for pcm_chunk in my_tts_model.stream(text):
+            req = json.loads(payload)
+            # for pcm_chunk in my_tts_model.stream(req["text"], req["voiceId"], req["speed"]):
             #     send_frame(OP_AUDIO_CHUNK, pcm_chunk)
-
             send_frame(OP_END_OF_STREAM)
+        else:
+            send_json(OP_ERROR, {"code": "unsupported_opcode", "message": hex(opcode)})
 
 if __name__ == '__main__':
     main()
 ```
 
+A synchronous worker like this one cannot honour `Cancel` mid-sentence; the host still drains its stream. Workers that need prompt cancellation read stdin on a separate thread (see `Engines/Kokoro/KokoroWorker.cs`).
+
 ---
 
-## 6. Phased Implementation Roadmap
+## 6. Implementation Status
 
-When you are ready to implement this in the future:
-
-1. **Phase 1: Domain Protocol Definitions**
-   - Add `EngineIpcProtocol.cs` in `MoonTTS.Domain/Audio/` with binary framing helpers.
-   - Define `ExternalEngineManifest` DTOs.
-2. **Phase 2: External Engine Adapter**
-   - Implement `ExternalEngineAdapter : ITtsEngine` in `MoonTTS.Infrastructure`.
-   - Implement process lifecycle supervisor with auto-restart on crash.
-3. **Phase 3: Separate Kokoro Worker**
-   - Move `KokoroOnnxEngine.cs` and `KokoroSharp` into a separate standalone project: `MoonTTS.Engine.Kokoro`.
-   - Build it as a standalone worker executable.
-4. **Phase 4: Decouple Core Dependencies**
-   - Remove `<PackageReference Include="KokoroSharp" />` and `OnnxRuntime` from `MoonTTS.Infrastructure.csproj`.
-   - Core app binary immediately drops from **96 MB $\to$ ~20 MB**.
-5. **Phase 5: Plugin Discovery**
-   - Wire `DownloadManager` and `ModelLibrary` to download engine worker bundles into `~/.local/share/moontts/engines/`.
+1. **Phase 1: Protocol Definitions** — done: `MoonTTS.Engine.Protocol` (framing, opcodes, payload DTOs, manifests).
+2. **Phase 2: External Engine Adapter** — done: `ExternalTtsEngine` + `EngineProcess`, with restart on the next request after a crash.
+3. **Phase 3: Separate Kokoro Worker** — done: `Engines/Kokoro` (`kokoro-worker`).
+4. **Phase 4: Decouple Core Dependencies** — done: `KokoroSharp` and `OnnxRuntime` removed from the host; no engine-specific types remain in Domain, Core, Infrastructure, Avalonia or CLI.
+5. **Phase 5: Plugin Discovery** — done: `EngineCatalog` scans the engines directory. Downloading worker bundles themselves (not just model files) remains future work.

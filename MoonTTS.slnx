@@ -3,5 +3,6 @@
   <Project Path="MoonTTS.CLI/MoonTTS.CLI.csproj" />
   <Project Path="MoonTTS.Core/MoonTTS.Core.csproj" />
   <Project Path="MoonTTS.Domain/MoonTTS.Domain.csproj" />
+  <Project Path="MoonTTS.Engine.Protocol/MoonTTS.Engine.Protocol.csproj" />
   <Project Path="MoonTTS.Infrastructure/MoonTTS.Infrastructure.csproj" />
 </Solution>

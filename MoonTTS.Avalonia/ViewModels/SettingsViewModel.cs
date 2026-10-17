@@ -7,7 +7,6 @@ using CommunityToolkit.Mvvm.Input;
 using MoonTTS.Avalonia.Services;
 using MoonTTS.Core.Services;
 using MoonTTS.Domain.Entities;
-using MoonTTS.Domain.Enums;
 using MoonTTS.Domain.Interfaces;
 using MoonTTS.Domain.ValueObjects;
 
@@ -19,9 +18,11 @@ namespace MoonTTS.Avalonia.ViewModels;
         - SettingsViewModel(SettingsManager, IAudioPlayer, IWindowService, DownloadManager, DictionaryManager?, HotkeyManager?, HistoryManager?, TtsEngineProvider?)
         - LoadAudioDevices() : void
         - LoadTtsEngines() : void
-        - LoadActiveVoices() : void
+        - RefreshVoicesAsync() : Task
+        - SelectVoiceFromConfig() : void
         - LoadSettings() : void
         - LoadModelStatuses() : void
+        - SwitchModelAsync(ModelMetadata model) : Task
         - AutoSave() : void
         - SwitchToAdvanced() : void
         - SwitchToQuick() : void
@@ -53,7 +54,7 @@ public enum AdvancedTab
 public partial class ModelStatusItem : ObservableObject
 {
     [ObservableProperty]
-    private TtsModelType _modelType;
+    private ModelId _model;
 
     [ObservableProperty]
     private string _name = string.Empty;
@@ -90,10 +91,10 @@ public partial class SettingsViewModel : ViewModelBase
 
     /* Quick & Audio Settings */
     [ObservableProperty]
-    private TtsModelType _selectedModel = TtsModelType.Kokoro;
+    private ModelMetadata? _selectedModel;
 
     [ObservableProperty]
-    private string _selectedVoice = string.Empty;
+    private VoiceInfo? _selectedVoice;
 
     [ObservableProperty]
     private bool _enablePrimaryPlayback = true;
@@ -168,8 +169,8 @@ public partial class SettingsViewModel : ViewModelBase
     private bool _newDictCaseSensitive;
 
     /* Collections */
-    public ObservableCollection<TtsModelType> AvailableModels { get; } = new();
-    public ObservableCollection<string> AvailableVoices { get; } = new();
+    public ObservableCollection<ModelMetadata> AvailableModels { get; } = new();
+    public ObservableCollection<VoiceInfo> AvailableVoices { get; } = new();
     public ObservableCollection<AudioDeviceInfo> AvailableOutputDevices { get; } = new();
     public ObservableCollection<DictionaryEntry> DictionaryEntries { get; } = new();
     public ObservableCollection<HotkeyEntry> HotkeyEntries { get; } = new();
@@ -205,9 +206,11 @@ public partial class SettingsViewModel : ViewModelBase
         {
             LoadAudioDevices();
             LoadTtsEngines();
-            LoadActiveVoices();
             LoadModelStatuses();
             LoadSettings();
+
+            /* Voices come from the engine worker, so they are filled in once the engine finishes loading */
+            _ = RefreshVoicesAsync();
         }
     }
 
@@ -251,33 +254,50 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
-    /* Populates all supported TTS models */
+    /* Populates every model offered by the installed engines */
     private void LoadTtsEngines()
     {
         AvailableModels.Clear();
-        AvailableModels.Add(TtsModelType.Kokoro);
-        AvailableModels.Add(TtsModelType.Kokoro_fp16);
-        AvailableModels.Add(TtsModelType.Kokoro_zh_fp16);
+        if (_downloadManager == null)
+            return;
+
+        foreach (var model in _downloadManager.GetAvailableModels())
+            AvailableModels.Add(model);
     }
 
-    /* Populates active voices with reliable fallback to KokoroVoiceId enum */
-    private void LoadActiveVoices()
+    /* Populates the voices reported by the active engine and selects the configured one */
+    private async Task RefreshVoicesAsync()
     {
-        AvailableVoices.Clear();
-        var engineVoices = _engineProvider?.CurrentEngine?.ListVoices();
-        if (engineVoices != null && engineVoices.Count > 0)
+        if (_engineProvider == null)
+            return;
+
+        var engine = await _engineProvider.GetEngineAsync();
+
+        _isLoading = true;
+        try
         {
-            foreach (var voice in engineVoices)
+            AvailableVoices.Clear();
+            foreach (var voice in engine.ListVoices())
                 AvailableVoices.Add(voice);
+            SelectVoiceFromConfig();
         }
-        else
+        finally
         {
-            foreach (var voice in Enum.GetValues<KokoroVoiceId>())
-            {
-                if (voice != KokoroVoiceId.Unselected)
-                    AvailableVoices.Add(voice.ToString());
-            }
+            _isLoading = false;
         }
+    }
+
+    /* Selects the voice saved for the selected model, falling back to the model's first voice */
+    private void SelectVoiceFromConfig()
+    {
+        if (_settingsManager == null || SelectedModel == null)
+        {
+            SelectedVoice = AvailableVoices.FirstOrDefault();
+            return;
+        }
+
+        string configuredVoice = _settingsManager.GetEngineConfig(SelectedModel.Id).VoiceId;
+        SelectedVoice = AvailableVoices.FirstOrDefault(v => v.Id == configuredVoice) ?? AvailableVoices.FirstOrDefault();
     }
 
     /* Populates model download statuses */
@@ -292,9 +312,9 @@ public partial class SettingsViewModel : ViewModelBase
             ModelStatuses.Add(
                 new ModelStatusItem
                 {
-                    ModelType = model.ModelType,
+                    Model = model.Id,
                     Name = model.DisplayName,
-                    IsDownloaded = _downloadManager.IsModelDownloaded(model.ModelType),
+                    IsDownloaded = _downloadManager.IsModelDownloaded(model.Id),
                     Progress = 0,
                 }
             );
@@ -311,21 +331,11 @@ public partial class SettingsViewModel : ViewModelBase
         try
         {
             var appConfig = _settingsManager.CurrentAppConfig;
-            var activeModel =
-                appConfig.ActiveModel != TtsModelType.Unselected
-                    ? appConfig.ActiveModel
-                    : TtsModelType.Kokoro;
-            var engineConfig = _settingsManager.GetEngineConfig<KokoroEngineConfig>(activeModel);
-
-            SelectedModel =
-                appConfig.ActiveModel != TtsModelType.Unselected
-                    ? appConfig.ActiveModel
-                    : TtsModelType.Kokoro;
-            SelectedVoice =
-                string.IsNullOrEmpty(engineConfig.VoiceId)
-                || engineConfig.VoiceId == KokoroVoiceId.Unselected.ToString()
-                    ? KokoroVoiceId.af_heart.ToString()
-                    : engineConfig.VoiceId;
+            SelectedModel = AvailableModels.FirstOrDefault(m => m.Id == appConfig.ActiveModel);
+            var engineConfig = SelectedModel != null
+                ? _settingsManager.GetEngineConfig(SelectedModel.Id)
+                : new EngineConfig();
+            SelectVoiceFromConfig();
 
             EnablePrimaryPlayback = appConfig.EnablePrimaryPlayback;
             SelectedPrimaryDevice =
@@ -380,45 +390,14 @@ public partial class SettingsViewModel : ViewModelBase
     }
 
     /* Auto-save triggers */
-    partial void OnSelectedModelChanged(TtsModelType value)
+    partial void OnSelectedModelChanged(ModelMetadata? value)
     {
-        if (_isLoading)
+        if (_isLoading || value == null)
             return;
 
-        if (_engineProvider != null && _engineProvider.CurrentModelType != value)
+        if (_engineProvider != null && _engineProvider.CurrentModel != value.Id)
         {
-            var switchResult = _engineProvider.SwitchModel(value);
-            if (switchResult.IsSuccess)
-            {
-                LoadActiveVoices();
-                var newEngineConfig = _settingsManager?.GetEngineConfig<KokoroEngineConfig>(value);
-                if (
-                    newEngineConfig != null
-                    && !string.IsNullOrEmpty(newEngineConfig.VoiceId)
-                    && AvailableVoices.Contains(newEngineConfig.VoiceId)
-                )
-                {
-                    SelectedVoice = newEngineConfig.VoiceId;
-                }
-                else if (AvailableVoices.Count > 0 && !AvailableVoices.Contains(SelectedVoice))
-                {
-                    SelectedVoice = AvailableVoices[0];
-                }
-                AutoSave();
-            }
-            else
-            {
-                /* Model switch failed (e.g. model not downloaded) - revert dropdown without saving */
-                _isLoading = true;
-                try
-                {
-                    SelectedModel = _engineProvider.CurrentModelType;
-                }
-                finally
-                {
-                    _isLoading = false;
-                }
-            }
+            _ = SwitchModelAsync(value);
         }
         else
         {
@@ -426,18 +405,59 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
-    partial void OnSelectedVoiceChanged(string value)
+    /* Loads the selected model in its engine worker and refreshes voices and speed for it */
+    private async Task SwitchModelAsync(ModelMetadata model)
     {
-        if (!_isLoading && _engineProvider?.CurrentEngine != null && !string.IsNullOrEmpty(value))
+        if (_engineProvider == null)
+            return;
+
+        var switchResult = await _engineProvider.SwitchModelAsync(model.Id);
+        if (switchResult.IsSuccess)
         {
-            _engineProvider.CurrentEngine.ActiveVoice = value;
+            await RefreshVoicesAsync();
+            if (_settingsManager != null)
+            {
+                _isLoading = true;
+                try
+                {
+                    float speed = _settingsManager.GetEngineConfig(model.Id).Speed;
+                    SpeechSpeed = speed > 0 ? speed : 1.0f;
+                }
+                finally
+                {
+                    _isLoading = false;
+                }
+            }
+            AutoSave();
+        }
+        else
+        {
+            /* Model switch failed (e.g. model not downloaded) - revert dropdown without saving */
+            await Console.Error.WriteLineAsync($"Model switch failed: {switchResult.ErrorMessage}");
+            _isLoading = true;
+            try
+            {
+                SelectedModel = AvailableModels.FirstOrDefault(m => m.Id == _engineProvider.CurrentModel);
+            }
+            finally
+            {
+                _isLoading = false;
+            }
+        }
+    }
+
+    partial void OnSelectedVoiceChanged(VoiceInfo? value)
+    {
+        if (!_isLoading && _engineProvider != null && value != null)
+        {
+            _engineProvider.CurrentEngine.ActiveVoice = value.Id;
         }
         AutoSave();
     }
 
     partial void OnSpeechSpeedChanged(float value)
     {
-        if (!_isLoading && _engineProvider?.CurrentEngine != null)
+        if (!_isLoading && _engineProvider != null)
         {
             _engineProvider.CurrentEngine.Speed = value;
         }
@@ -504,7 +524,7 @@ public partial class SettingsViewModel : ViewModelBase
             return;
 
         var appConfig = _settingsManager.CurrentAppConfig;
-        appConfig.ActiveModel = SelectedModel;
+        appConfig.ActiveModel = SelectedModel?.Id ?? ModelId.Unselected;
         appConfig.EnablePrimaryPlayback = EnablePrimaryPlayback;
         appConfig.PrimaryAudioDeviceId = SelectedPrimaryDevice?.DeviceId ?? "-1";
         appConfig.PrimaryVolume = PrimaryVolume;
@@ -522,12 +542,16 @@ public partial class SettingsViewModel : ViewModelBase
             ? null
             : CustomModelsDirectory.Trim();
 
-        var engineConfig = _settingsManager.GetEngineConfig<KokoroEngineConfig>(SelectedModel);
-        engineConfig.VoiceId = SelectedVoice;
-        engineConfig.Speed = SpeechSpeed;
-
         _settingsManager.SaveAppConfig(appConfig);
-        _settingsManager.SaveEngineConfig(SelectedModel, engineConfig);
+
+        /* Voice and speed are remembered per model */
+        if (SelectedModel != null)
+        {
+            var engineConfig = _settingsManager.GetEngineConfig(SelectedModel.Id);
+            engineConfig.VoiceId = SelectedVoice?.Id ?? engineConfig.VoiceId;
+            engineConfig.Speed = SpeechSpeed;
+            _settingsManager.SaveEngineConfig(SelectedModel.Id, engineConfig);
+        }
 
         _audioPlayer.SetOutputDevices(
             appConfig.PrimaryAudioDeviceId,
@@ -734,10 +758,10 @@ public partial class SettingsViewModel : ViewModelBase
         try
         {
             var progress = new Progress<double>(p => item.Progress = p * 100);
-            var result = await _downloadManager.DownloadModelAsync(item.ModelType, progress);
+            var result = await _downloadManager.DownloadModelAsync(item.Model, progress);
             item.IsDownloaded = result.IsSuccess;
             if (result.IsSuccess)
-                LoadActiveVoices();
+                await RefreshVoicesAsync();
         }
         catch (Exception ex)
         {
@@ -756,7 +780,7 @@ public partial class SettingsViewModel : ViewModelBase
     {
         if (_downloadManager == null || item == null)
             return;
-        var res = _downloadManager.DeleteModel(item.ModelType);
+        var res = _downloadManager.DeleteModel(item.Model);
         if (res.IsSuccess)
         {
             item.IsDownloaded = false;

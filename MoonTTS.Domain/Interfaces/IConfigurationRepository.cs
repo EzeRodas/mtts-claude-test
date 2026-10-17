@@ -1,5 +1,5 @@
 using MoonTTS.Domain.Entities;
-using MoonTTS.Domain.Enums;
+using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.Domain.Interfaces;
 
@@ -13,8 +13,8 @@ public interface IConfigurationRepository
     event Action AppConfigChanged;
     
     /* Engine Config */
-    T GetEngineConfig<T>(TtsModelType engine) where T : IEngineConfig, new();
-    void SaveEngineConfig<T>(TtsModelType engine, T config) where T : IEngineConfig;
+    EngineConfig GetEngineConfig(ModelId model);
+    void SaveEngineConfig(ModelId model, EngineConfig config);
     event Action? EngineConfigChanged;
     
     /* Dictionary */

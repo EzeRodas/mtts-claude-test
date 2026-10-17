@@ -2,7 +2,7 @@ using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using MoonTTS.CLI.Utilities;
 using MoonTTS.Core.Services;
-using MoonTTS.Domain.Enums;
+using MoonTTS.Domain.Interfaces;
 
 namespace MoonTTS.CLI.commands;
 
@@ -20,38 +20,40 @@ public static class DownloadModelCommand
         {
             string modelInput = parseResult.GetValue(modelArg) ?? string.Empty;
 
-            if (!Enum.TryParse<TtsModelType>(modelInput, true, out var modelType) ||
-                modelType == TtsModelType.Unselected)
+            var modelRegistry = services.GetRequiredService<IModelRegistry>();
+            var model = modelRegistry.FindModel(modelInput);
+            if (model == null)
             {
                 Terminal.Error($"Error: Unknown model '{modelInput}'.");
-                var validModels = Enum.GetNames<TtsModelType>().Where(m => m != nameof(TtsModelType.Unselected));
+                var validModels = modelRegistry.GetAvailableModels().Select(m => m.Id.ToString());
                 Terminal.Muted("Supported models: " + string.Join(", ", validModels));
                 return 1;
             }
+            var modelId = model.Id;
 
             var downloadManager = services.GetRequiredService<DownloadManager>();
 
-            if (downloadManager.IsModelDownloaded(modelType))
+            if (downloadManager.IsModelDownloaded(modelId))
             {
-                Terminal.Warning($"Model '{modelType}' is already downloaded.");
+                Terminal.Warning($"Model '{modelId}' is already downloaded.");
                 return 0;
             }
 
-            Terminal.Info($"Downloading model files for '{modelType}'...");
+            Terminal.Info($"Downloading model files for '{modelId}'...");
 
             var progress = new Progress<double>(percent =>
             {
-                Terminal.RenderProgressBar($"Downloading {modelType}", (int)(percent * 100));
+                Terminal.RenderProgressBar($"Downloading {modelId}", (int)(percent * 100));
             });
 
-            var result = await downloadManager.DownloadModelAsync(modelType, progress, cancellationToken);
+            var result = await downloadManager.DownloadModelAsync(modelId, progress, cancellationToken);
             if (result.IsFailure)
             {
                 Terminal.Error($"\nDownload failed: {result.ErrorMessage}");
                 return 1;
             }
 
-            Terminal.Success($"\nSuccessfully downloaded model: {modelType}");
+            Terminal.Success($"\nSuccessfully downloaded model: {modelId}");
             return 0;
         });
 

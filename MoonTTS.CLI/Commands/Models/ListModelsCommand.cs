@@ -2,7 +2,7 @@ using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using MoonTTS.CLI.Utilities;
 using MoonTTS.Core.Services;
-using MoonTTS.Domain.Enums;
+using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.CLI.commands;
 
@@ -20,26 +20,32 @@ public static class ListModelsCommand
 
             var activeModel = settingsManager.CurrentAppConfig.ActiveModel;
 
-            if (activeModel != TtsModelType.Unselected && !downloadManager.IsModelDownloaded(activeModel))
+            if (!activeModel.IsUnselected && !downloadManager.IsModelDownloaded(activeModel))
             {
                 var config = settingsManager.CurrentAppConfig;
-                config.ActiveModel = TtsModelType.Unselected;
+                config.ActiveModel = ModelId.Unselected;
                 settingsManager.SaveAppConfig(config);
-                activeModel = TtsModelType.Unselected;
+                activeModel = ModelId.Unselected;
             }
             
             var availableModels = downloadManager.GetAvailableModels().ToList();
+            if (availableModels.Count == 0)
+            {
+                Terminal.Warning("No engines are installed.");
+                Terminal.Muted("Install an engine by placing its folder (with an engine.json) in the Moon-TTS engines folder.");
+                return 0;
+            }
 
             var headers = new[] { "Model Key", "Display Name", "Downloaded", "Status" };
 
             var rows = availableModels.Select(m =>
             {
-                bool isDownloaded = downloadManager.IsModelDownloaded(m.ModelType);
-                bool isActive = m.ModelType == activeModel;
+                bool isDownloaded = downloadManager.IsModelDownloaded(m.Id);
+                bool isActive = m.Id == activeModel;
 
                 return new[]
                 {
-                    m.ModelType.ToString(),
+                    m.Id.ToString(),
                     m.DisplayName,
                     isDownloaded ? "Yes" : "No",
                     isActive ? "ACTIVE" : "-"

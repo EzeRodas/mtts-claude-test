@@ -44,7 +44,8 @@ class Program
         services.AddSingleton<IAudioPlayer>(_ => AudioPlayerManager.Create());
         services.AddSingleton<IConfigurationRepository, JsonConfigurationRepository>();
         services.AddSingleton<SettingsManager>();
-        services.AddSingleton<IModelRegistry, SupportedModelRegistry>();
+        services.AddSingleton<IModelRegistry>(_ => new EngineCatalog());
+        services.AddSingleton<EngineVoiceStore>();
         services.AddSingleton<IModelDownloader, HttpModelDownloader>();
         services.AddSingleton<DownloadManager>();
         services.AddSingleton<HistoryManager>();

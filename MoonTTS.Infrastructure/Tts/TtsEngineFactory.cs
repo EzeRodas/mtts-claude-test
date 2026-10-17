@@ -1,35 +1,59 @@
-using Microsoft.Extensions.DependencyInjection;
-using MoonTTS.Domain.Enums;
-using MoonTTS.Domain.Interfaces;
 using MoonTTS.Core.Helpers;
 using MoonTTS.Core.Services;
+using MoonTTS.Domain.Common;
+using MoonTTS.Domain.Interfaces;
+using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.Infrastructure.Tts;
 
 /* Provides the valid engines to the service registry */
 /* File Structure:
-        - TtsEngineFactory(IServiceProvider services)
-        - Create(TtsModelType modelType) : ITtsEngine
+        - TtsEngineFactory(
+            IModelRegistry modelRegistry,
+            SettingsManager settingsManager,
+            DownloadManager downloadManager,
+            EngineVoiceStore voiceStore)
+        - CreateAsync(ModelId modelId, CancellationToken cancellationToken) : Task<Result<ITtsEngine>>
 */
 
 public class TtsEngineFactory : ITtsEngineFactory
 {
-    private readonly IServiceProvider _services;
-    
-    public TtsEngineFactory(IServiceProvider services)
+    private readonly IModelRegistry _modelRegistry;
+    private readonly SettingsManager _settingsManager;
+    private readonly DownloadManager _downloadManager;
+    private readonly EngineVoiceStore _voiceStore;
+
+    /* Gets the values through dependency injection */
+    public TtsEngineFactory(
+        IModelRegistry modelRegistry,
+        SettingsManager settingsManager,
+        DownloadManager downloadManager,
+        EngineVoiceStore voiceStore)
     {
-        _services = services;
+        _modelRegistry = modelRegistry;
+        _settingsManager = settingsManager;
+        _downloadManager = downloadManager;
+        _voiceStore = voiceStore;
     }
 
-    /* Here is where you filter which class to use depending on model type */
-    /* If you want to add a model you need to filter its types here */
-    public ITtsEngine Create(TtsModelType modelType) => modelType switch
+    /* Every installed engine is served by the same out-of-process adapter, so adding an engine needs no code here */
+    public async Task<Result<ITtsEngine>> CreateAsync(ModelId modelId, CancellationToken cancellationToken = default)
     {
-        /* We use GetRequiredService to make sure it won't be null at runtime, if it is, it'll throw an error */
-        TtsModelType.Kokoro or
-        TtsModelType.Kokoro_fp16 or
-        TtsModelType.Kokoro_zh_fp16 =>
-            new KokoroOnnxEngine(_services.GetRequiredService<SettingsManager>(), modelType),
-        _ => new EmptyTtsEngine()
-    };
+        if (modelId.IsUnselected)
+            return Result<ITtsEngine>.Success(new EmptyTtsEngine());
+
+        var model = _modelRegistry.GetModelMetadata(modelId);
+        if (model == null)
+            return Result<ITtsEngine>.Failure($"Model '{modelId}' is not provided by any installed engine.");
+
+        var engine = _modelRegistry.GetEngine(modelId.EngineId);
+        if (engine == null)
+            return Result<ITtsEngine>.Failure($"Engine '{modelId.EngineId}' is not installed.");
+
+        if (!_downloadManager.IsModelDownloaded(modelId))
+            return Result<ITtsEngine>.Failure($"Model '{modelId}' files are not downloaded.");
+
+        return await ExternalTtsEngine.CreateAsync(engine, model, _settingsManager, _voiceStore, cancellationToken)
+            .ConfigureAwait(false);
+    }
 }

@@ -15,12 +15,12 @@ public static class SetVoiceCommand
         var voiceArg = new Argument<string>("voice") { Description = "The ID of the voice to activate." };
         command.Add(voiceArg);
 
-        command.SetAction((parseResult) =>
+        command.SetAction(async (parseResult, cancellationToken) =>
         {
             string voice = parseResult.GetValue(voiceArg) ?? string.Empty;
             var engineProvider = services.GetRequiredService<ITtsEngineProvider>();
 
-            var engine = engineProvider.CurrentEngine;
+            var engine = await engineProvider.GetEngineAsync(cancellationToken);
             if (!engine.IsAvailable)
             {
                 Terminal.Error("Error: No TTS model is currently loaded.");
@@ -28,7 +28,8 @@ public static class SetVoiceCommand
             }
 
             var availableVoices = engine.ListVoices();
-            var targetVoice = availableVoices.FirstOrDefault(v => string.Equals(v, voice, StringComparison.OrdinalIgnoreCase));
+            var targetVoice = availableVoices
+                .FirstOrDefault(v => string.Equals(v.Id, voice, StringComparison.OrdinalIgnoreCase))?.Id;
 
             if (targetVoice == null)
             {

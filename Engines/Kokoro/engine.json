@@ -1,0 +1,30 @@
+{
+  "id": "kokoro",
+  "displayName": "Kokoro ONNX Neural Synthesizer",
+  "description": "Local neural text-to-speech running on ONNX Runtime.",
+  "version": "1.0.0",
+  "executable": "kokoro-worker",
+  "models": [
+    {
+      "id": "kokoro-v1.0",
+      "displayName": "Kokoro ONNX (FP32 - Highest Quality)",
+      "downloadFiles": {
+        "kokoro.onnx": "https://github.com/Lyrcaxis/KokoroSharpBinaries/releases/download/v2.0.0/kokoro.onnx"
+      }
+    },
+    {
+      "id": "kokoro-v1.0-fp16",
+      "displayName": "Kokoro ONNX (FP16 - Performance)",
+      "downloadFiles": {
+        "kokoro-v1.0-fp16.onnx": "https://github.com/Lyrcaxis/KokoroSharpBinaries/releases/download/v2.0.0/kokoro-fp16.onnx"
+      }
+    },
+    {
+      "id": "kokoro-v1.1-zh-fp16",
+      "displayName": "Kokoro ONNX Chinese (FP16)",
+      "downloadFiles": {
+        "kokoro-zh-fp16.onnx": "https://github.com/Lyrcaxis/KokoroSharpBinaries/releases/download/v2.0.0/kokoro-zh-fp16.onnx"
+      }
+    }
+  ]
+}

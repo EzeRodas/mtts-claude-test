@@ -2,8 +2,8 @@ using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using MoonTTS.CLI.Utilities;
 using MoonTTS.Core.Services;
-using MoonTTS.Domain.Enums;
 using MoonTTS.Domain.Interfaces;
+using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.CLI.commands;
 
@@ -20,56 +20,58 @@ public static class DeleteModelCommand
         command.Add(modelArg);
         command.Add(skipOpt);
 
-        command.SetAction((parseResult) =>
+        command.SetAction(async (parseResult, cancellationToken) =>
         {
             string modelInput = parseResult.GetValue(modelArg) ?? string.Empty;
             bool skipConfirm = parseResult.GetValue(skipOpt);
 
-            if (!Enum.TryParse<TtsModelType>(modelInput, true, out var modelType) ||
-                modelType == TtsModelType.Unselected)
+            var modelRegistry = services.GetRequiredService<IModelRegistry>();
+            var model = modelRegistry.FindModel(modelInput);
+            if (model == null)
             {
                 Terminal.Error($"Error: Unknown model '{modelInput}'.");
-                var validModels = Enum.GetNames<TtsModelType>().Where(m => m != nameof(TtsModelType.Unselected));
+                var validModels = modelRegistry.GetAvailableModels().Select(m => m.Id.ToString());
                 Terminal.Muted("Supported models: " + string.Join(", ", validModels));
                 return 1;
             }
+            var modelId = model.Id;
 
             var downloadManager = services.GetRequiredService<DownloadManager>();
             var settingsManager = services.GetRequiredService<SettingsManager>();
             var engineProvider = services.GetRequiredService<ITtsEngineProvider>();
 
-            if (!downloadManager.IsModelDownloaded(modelType))
+            if (!downloadManager.IsModelDownloaded(modelId))
             {
-                Terminal.Warning($"Model '{modelType}' is not downloaded.");
+                Terminal.Warning($"Model '{modelId}' is not downloaded.");
                 return 0;
             }
 
-            bool isActive = settingsManager.CurrentAppConfig.ActiveModel == modelType;
+            bool isActive = settingsManager.CurrentAppConfig.ActiveModel == modelId;
             if (isActive)
             {
-                Terminal.Warning($"Warning: '{modelType}' is currently the active model.");
+                Terminal.Warning($"Warning: '{modelId}' is currently the active model.");
                 if (!skipConfirm && !Terminal.Confirm("Deleting it will set active model to Unselected. Proceed?"))
                 {
                     Terminal.Muted("Deletion cancelled.");
                     return 0;
                 }
 
-                engineProvider.SwitchModel(TtsModelType.Unselected);
+                await engineProvider.SwitchModelAsync(ModelId.Unselected, cancellationToken);
             }
-            else if (!skipConfirm && !Terminal.Confirm($"Are you sure you want to delete model '{modelType}'?"))
+            else if (!skipConfirm && !Terminal.Confirm($"Are you sure you want to delete model '{modelId}'?"))
             {
                 Terminal.Muted("Deletion cancelled.");
                 return 0;
             }
 
-            var deleteResult = downloadManager.DeleteModel(modelType);
+            var deleteResult = downloadManager.DeleteModel(modelId);
             if (deleteResult.IsFailure)
             {
                 Terminal.Error($"Failed to delete model files: {deleteResult.ErrorMessage}");
                 return 1;
             }
 
-            Terminal.Success($"Successfully deleted model: {modelType}");
+            Terminal.Success($"Successfully deleted model: {modelId}");
             return 0;
         });
 
