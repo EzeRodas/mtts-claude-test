@@ -1,3 +1,5 @@
+#if !WINDOWS
+/* Linux audio types only exist outside the Windows build */
 using System.Runtime.Versioning;
 using MoonTTS.Infrastructure.Audio.Linux;
 
@@ -162,3 +164,5 @@ public sealed class LinuxDeviceEnumeratorTests
         Assert.Empty(sinks);
     }
 }
+
+#endif

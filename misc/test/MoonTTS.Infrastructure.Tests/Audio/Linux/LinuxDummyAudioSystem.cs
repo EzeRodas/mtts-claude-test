@@ -1,3 +1,5 @@
+#if !WINDOWS
+/* Linux audio types only exist outside the Windows build */
 using System.Diagnostics;
 using System.Runtime.Versioning;
 
@@ -163,3 +165,5 @@ internal sealed class LinuxDummyAudioSystem : IDisposable
         throw new FileNotFoundException($"'{utility}' is needed by the dummy audio tools but is not on PATH.");
     }
 }
+
+#endif

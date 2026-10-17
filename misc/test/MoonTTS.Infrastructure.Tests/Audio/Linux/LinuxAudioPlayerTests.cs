@@ -1,3 +1,5 @@
+#if !WINDOWS
+/* Linux audio types only exist outside the Windows build */
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -573,3 +575,5 @@ public sealed class LinuxAudioPlayerTests
         Assert.Null(error);
     }
 }
+
+#endif

@@ -1,3 +1,5 @@
+#if !WINDOWS
+/* Linux audio types only exist outside the Windows build */
 namespace MoonTTS.Infrastructure.Tests.Audio.Linux;
 
 /* File Structure:
@@ -145,3 +147,5 @@ internal static class LinuxToolOutputs
         " └─ Clients:\n" +
         "        33. WirePlumber                         [1.0.5, moon@desktop, pid:1520]\n";
 }
+
+#endif

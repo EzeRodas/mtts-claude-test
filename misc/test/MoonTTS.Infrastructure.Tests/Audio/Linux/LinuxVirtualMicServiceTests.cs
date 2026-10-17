@@ -1,3 +1,5 @@
+#if !WINDOWS
+/* Linux audio types only exist outside the Windows build */
 using System.Runtime.Versioning;
 using MoonTTS.Infrastructure.Audio.Linux;
 
@@ -213,3 +215,5 @@ public sealed class LinuxVirtualMicServiceTests
         Assert.StartsWith("Failed to create virtual sink via pactl and pw-cli: Failed to execute 'pw-cli'", result.ErrorMessage);
     }
 }
+
+#endif
