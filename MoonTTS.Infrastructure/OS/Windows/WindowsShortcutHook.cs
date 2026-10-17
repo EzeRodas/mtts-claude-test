@@ -1,12 +1,25 @@
 using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using MoonTTS.Domain.Interfaces;
 using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.Infrastructure.OS.Windows;
 
+/* File Structure:
+        - WindowsShortcutHook()
+        - WindowsShortcutHook(IWin32HotkeyApi win32)
+        - InitializeAsync() : Task
+        - RegisterShortcutAsync(ShortcutCombo? toggleShortcut, Dictionary<string, ShortcutCombo> phraseShortcuts) : Task
+        - RegisterSingleShortcut(string id, ShortcutCombo combo) : void
+        - EventLoop() : void
+        - Dispose() : void
+*/
+
 public class WindowsShortcutHook : IGlobalShortcutHook
 {
+    /* Native Win32 surface (the real user32 in the app, a dummy in tests) */
+    private readonly IWin32HotkeyApi _win32;
+
     private Thread? _eventThread;
     private int _threadId;
     private readonly ManualResetEvent _readyEvent = new(false);
@@ -20,6 +33,19 @@ public class WindowsShortcutHook : IGlobalShortcutHook
 
     public event Action<string>? OnShortcutTriggered;
 
+    /* Talks to the real Windows API */
+    [SupportedOSPlatform("windows")]
+    public WindowsShortcutHook() : this(new Win32HotkeyApi())
+    {
+    }
+
+    /* Talks to the given Win32 API implementation */
+    public WindowsShortcutHook(IWin32HotkeyApi win32)
+    {
+        _win32 = win32;
+    }
+
+    /* Starts the background message-loop thread and waits until its message queue exists */
     public Task InitializeAsync()
     {
         _eventThread = new Thread(EventLoop) {IsBackground = true};
@@ -31,6 +57,7 @@ public class WindowsShortcutHook : IGlobalShortcutHook
         return Task.CompletedTask;
     }
 
+    /* Replaces every registered hotkey; the work runs on the message-loop thread, which owns the hotkeys */
     public Task RegisterShortcutAsync(ShortcutCombo? toggleShortcut, Dictionary<string, ShortcutCombo> phraseShortcuts)
     {
         /* Queues the task for the background thread */
@@ -39,7 +66,7 @@ public class WindowsShortcutHook : IGlobalShortcutHook
             /* Unregisters old keys */
             foreach (var id in _registeredCombos.Keys)
             {
-                LibWin32.UnregisterHotKey(IntPtr.Zero, id);
+                _win32.UnregisterHotKey(IntPtr.Zero, id);
             }
             _registeredCombos.Clear();
             _nextHotkeyId = 1;
@@ -55,20 +82,21 @@ public class WindowsShortcutHook : IGlobalShortcutHook
         });
         
         /* Wakes up the bg thread to process our queue */
-        LibWin32.PostThreadMessage(_threadId, LibWin32.WM_WAKEUP, IntPtr.Zero, IntPtr.Zero);
+        _win32.PostThreadMessage(_threadId, IWin32HotkeyApi.WM_WAKEUP, IntPtr.Zero, IntPtr.Zero);
         
         return Task.CompletedTask;
     }
 
+    /* Translates a combo into Win32 modifiers + virtual key and registers it on the calling (message-loop) thread */
     private void RegisterSingleShortcut(string id, ShortcutCombo combo)
     {
         /* Prevents hotkey spamming */
-        uint modifiers = LibWin32.MOD_NOREPEAT;
+        uint modifiers = IWin32HotkeyApi.MOD_NOREPEAT;
 
-        if (combo.HasCtrl) modifiers |= LibWin32.MOD_CONTROL;
-        if (combo.HasAlt) modifiers |= LibWin32.MOD_ALT;
-        if (combo.HasShift) modifiers |= LibWin32.MOD_SHIFT;
-        if (combo.HasWin) modifiers |= LibWin32.MOD_WIN;
+        if (combo.HasCtrl) modifiers |= IWin32HotkeyApi.MOD_CONTROL;
+        if (combo.HasAlt) modifiers |= IWin32HotkeyApi.MOD_ALT;
+        if (combo.HasShift) modifiers |= IWin32HotkeyApi.MOD_SHIFT;
+        if (combo.HasWin) modifiers |= IWin32HotkeyApi.MOD_WIN;
 
         uint vk = 0;
         if (combo.MainKey.Length == 1)
@@ -83,7 +111,7 @@ public class WindowsShortcutHook : IGlobalShortcutHook
         
         int hotkeyId = _nextHotkeyId++;
 
-        if (LibWin32.RegisterHotKey(IntPtr.Zero, hotkeyId, modifiers, vk))
+        if (_win32.RegisterHotKey(IntPtr.Zero, hotkeyId, modifiers, vk))
         {
             _registeredCombos[hotkeyId] = id;
         }
@@ -93,26 +121,26 @@ public class WindowsShortcutHook : IGlobalShortcutHook
     /* Listener waiting for activating or registering hotkeys */
     private void EventLoop()
     {
-        _threadId = LibWin32.GetCurrentThreadId();
+        _threadId = _win32.GetCurrentThreadId();
         
         /* Forces Windows to create a Message Queue for this thread */
-        LibWin32.PeekMessage(out _, IntPtr.Zero, 0,0,0);
+        _win32.PeekMessage(out _, IntPtr.Zero, 0,0,0);
         _readyEvent.Set();
 
-        LibWin32.MSG msg;
+        IWin32HotkeyApi.MSG msg;
 
         /* GetMessage freezes the thread until windows sends a message */
-        while (LibWin32.GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
+        while (_win32.GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
         {
             /* Case if Windows notifies that a shortcut has been pressed */
-            if (msg.message == LibWin32.WM_HOTKEY)
+            if (msg.message == IWin32HotkeyApi.WM_HOTKEY)
             {
                 int hotkeyId = (int)msg.wParam;
                 if (_registeredCombos.TryGetValue(hotkeyId, out string? shortcutId))
                 {
                     OnShortcutTriggered?.Invoke(shortcutId);
                 }
-            } else if (msg.message == LibWin32.WM_WAKEUP)
+            } else if (msg.message == IWin32HotkeyApi.WM_WAKEUP)
             {
                 /* Case if the UI sends something to register */
                 while (_dispatchQueue.TryDequeue(out var action))
@@ -123,59 +151,9 @@ public class WindowsShortcutHook : IGlobalShortcutHook
         }
     }
 
+    /* Asks the message-loop thread to quit */
     public void Dispose()
     {
-        LibWin32.PostThreadMessage(_threadId, LibWin32.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
-    }
-    
-    /* Native C code that Windows expects to talk to */
-    /* https://learn.microsoft.com/en-us/windows/win32/api/winuser/ , mainly RegisterHotKey */
-
-    private static class LibWin32
-    {
-        public const uint WM_QUIT = 0x0012;
-        public const uint WM_HOTKEY = 0x0312;
-        public const uint WM_WAKEUP = 0x8001;
-        public const uint MOD_ALT = 0x0001;
-        public const uint MOD_CONTROL= 0x0002;
-        public const uint MOD_SHIFT = 0x0004;
-        public const uint MOD_WIN = 0x0008;
-        public const uint MOD_NOREPEAT = 0x4000;
-        
-        [DllImport("user32.dll")]
-        public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
-        
-        [DllImport("user32.dll")]
-        public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-
-        [DllImport("user32.dll")]
-        public static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
-        
-        [DllImport("user32.dll")]
-        public static extern bool PeekMessage(
-            out MSG lpMsg, 
-            IntPtr hWnd, 
-            uint wMsgFilterMin, 
-            uint wMsgFilterMax, 
-            uint wRemoveMsg
-            );
-        
-        [DllImport("user32.dll")]
-        public static extern bool PostThreadMessage(int idThread, uint Msg, IntPtr wParam, IntPtr lParam);
-        
-        [DllImport("user32.dll")]
-        public static extern int GetCurrentThreadId();
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MSG
-        {
-            public IntPtr hwnd;
-            public uint message;
-            public IntPtr wParam;
-            public IntPtr lParam;
-            public uint time;
-            public int pt_x;
-            public int pt_y;
-        }
+        _win32.PostThreadMessage(_threadId, IWin32HotkeyApi.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
     }
 }

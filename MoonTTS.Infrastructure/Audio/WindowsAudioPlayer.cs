@@ -9,16 +9,20 @@ using System.Threading.Tasks;
 using MoonTTS.Core.Utilities;
 using MoonTTS.Domain.Audio;
 using MoonTTS.Domain.Common;
-using NAudio.Wave;
 using MoonTTS.Domain.Entities;
 using MoonTTS.Domain.Interfaces;
 
 namespace MoonTTS.Infrastructure.Audio;
 
 /* File Structure:
+        - WindowsAudioPlayer()
+        - WindowsAudioPlayer(IWaveOutApi waveOutApi)
         - GetAvailableDevices() : Result<List<AudioDeviceInfo>>
         - SetOutputDevices(string? primaryDeviceId, string? secondaryMonitorDeviceId) : Result
+        - PlayPcmAsync(ReadOnlyMemory<byte> pcmBytes, AudioFormat format, CancellationToken cancellationToken) : Task<Result>
+        - StreamPcmAsync(IAsyncEnumerable<ReadOnlyMemory<byte>> pcmChunks, AudioFormat format, CancellationToken cancellationToken) : Task<Result>
         - PlayAsync(byte[] audioBytes, CancellationToken cancellationToken) : Task<Result>
+        - PlayOnDeviceAsync(byte[] wavBytes, int deviceNumber, float volume, bool isPrimary, CancellationToken token) : Task<Result>
         - SetVolume(int? primaryVolume, int? monitorVolume) : void
         - Pause() : void
         - Resume() : void
@@ -27,8 +31,14 @@ namespace MoonTTS.Infrastructure.Audio;
 
 public class WindowsAudioPlayer : IAudioPlayer
 {
-    private WaveOut? _primaryPlayer;
-    private WaveOut? _monitorPlayer;
+    /* waveOut device number meaning "this output is disabled" */
+    private const int DisabledDevice = -2;
+
+    /* Native waveOut surface (NAudio / WinMM in the app, a dummy in tests) */
+    private readonly IWaveOutApi _waveOutApi;
+
+    private IWaveOutPlayer? _primaryPlayer;
+    private IWaveOutPlayer? _monitorPlayer;
 
     private int _primaryDeviceNumber = -1; /* -1 is default for Windows */
     private int _monitorDeviceNumber = -2; /* -2 is disabled */
@@ -39,6 +49,17 @@ public class WindowsAudioPlayer : IAudioPlayer
     private CancellationTokenSource? _playbackCts;
     private readonly Lock _processLock = new();
 
+    /* Plays through NAudio / WinMM */
+    public WindowsAudioPlayer() : this(new NAudioWaveOutApi())
+    {
+    }
+
+    /* Plays through the given waveOut API implementation */
+    public WindowsAudioPlayer(IWaveOutApi waveOutApi)
+    {
+        _waveOutApi = waveOutApi;
+    }
+
     /*Returns a list with all the available Windows audio output devices visible by the application*/
     public Result<List<AudioDeviceInfo>> GetAvailableDevices()
     {
@@ -47,13 +68,12 @@ public class WindowsAudioPlayer : IAudioPlayer
             List<AudioDeviceInfo> devices = new List<AudioDeviceInfo>();
 
             /* Adds them one by one to the list */
-            for (int i = -1; i < WaveOut.DeviceCount; i++)
+            for (int i = -1; i < _waveOutApi.DeviceCount; i++)
             {
-                var caps = WaveOut.GetCapabilities(i);
                 devices.Add(new AudioDeviceInfo
                 {
                     DeviceId = i.ToString(),
-                    DeviceName = caps.ProductName,
+                    DeviceName = _waveOutApi.GetProductName(i),
                 });
             }
 
@@ -90,7 +110,7 @@ public class WindowsAudioPlayer : IAudioPlayer
                 }
                 else
                 {
-                    _primaryDeviceNumber = -2; /* Disabled */
+                    _primaryDeviceNumber = DisabledDevice; /* Disabled */
                 }
             }
 
@@ -103,7 +123,7 @@ public class WindowsAudioPlayer : IAudioPlayer
                         return Result.Failure($"Invalid monitor audio device ID '{monitorDeviceId}'");
                     _monitorDeviceNumber = monitorId;
                 }
-                else _monitorDeviceNumber = -2;
+                else _monitorDeviceNumber = DisabledDevice;
             }
         }
 
@@ -128,8 +148,101 @@ public class WindowsAudioPlayer : IAudioPlayer
         return Result.Success();
     }
 
+    /* Plays a complete WAV buffer on the primary and (if enabled) monitor devices at the same time */
+    private async Task<Result> PlayAsync(byte[] audioBytes, CancellationToken cancellationToken)
+    {
+        int primaryDevice;
+        int monitorDevice;
+        float primaryVolume, monitorVolume;
+
+        /* Snapshots the current configuration inside the lock */
+        lock (_processLock)
+        {
+            primaryDevice = _primaryDeviceNumber;
+            monitorDevice = _monitorDeviceNumber;
+            primaryVolume = _primaryVolume;
+            monitorVolume = _monitorVolume;
+        }
+
+        bool playPrimary = primaryDevice != DisabledDevice;
+        bool playMonitor = monitorDevice != DisabledDevice;
+
+        /* If both disabled returns */
+        if (!playPrimary && !playMonitor)
+            return Result.Success();
+
+        /* Terminates any previous playback */
+        Stop();
+
+        CancellationToken linkedToken;
+        lock (_processLock)
+        {
+            _playbackCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            linkedToken = _playbackCts.Token;
+        }
+
+        try
+        {
+            var tasks = new List<Task<Result>>();
+            if (playPrimary)
+                tasks.Add(PlayOnDeviceAsync(audioBytes, primaryDevice, primaryVolume, isPrimary: true, linkedToken));
+            if (playMonitor)
+                tasks.Add(PlayOnDeviceAsync(audioBytes, monitorDevice, monitorVolume, isPrimary: false, linkedToken));
+
+            var results = await Task.WhenAll(tasks);
+            foreach (var result in results)
+            {
+                if (result.IsFailure) return result;
+            }
+            return Result.Success();
+        }
+        catch (OperationCanceledException)
+        {
+            return Result.Failure("Playback cancelled.");
+        }
+        finally
+        {
+            Stop();
+        }
+    }
+
+    /* Opens one device, starts the WAV on it and completes when the device reports the end of playback */
+    private Task<Result> PlayOnDeviceAsync(byte[] wavBytes, int deviceNumber, float volume, bool isPrimary, CancellationToken token)
+    {
+        var tcs = new TaskCompletionSource<Result>();
+
+        try
+        {
+            IWaveOutPlayer player = _waveOutApi.CreatePlayer(deviceNumber);
+            lock (_processLock)
+            {
+                if (isPrimary) _primaryPlayer = player;
+                else _monitorPlayer = player;
+            }
+
+            /* Fired by the device when the buffer ends, when it is stopped, or on a driver error */
+            player.PlaybackStopped += error => tcs.TrySetResult(error == null
+                ? Result.Success()
+                : Result.Failure($"Windows audio playback failed on device {deviceNumber}: {error.Message}", error));
+
+            player.Init(wavBytes);
+            player.Volume = volume;
+            player.Play();
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(Result.Failure($"Failed to start Windows audio device {deviceNumber}: {ex.Message}", ex));
+        }
+
+        /* Cancellation token registration */
+        token.Register(() => tcs.TrySetCanceled(token));
+
+        return tcs.Task;
+    }
+
     /* The self-explanatory ones */
 
+    /* Sets the volumes (0-100, clamped); active players are updated live */
     public void SetVolume(int? primaryVolume = null, int? monitorVolume = null)
     {
         lock (_processLock)
@@ -146,6 +259,7 @@ public class WindowsAudioPlayer : IAudioPlayer
         }
     }
     
+    /* Pauses the active players */
     public void Pause()
     {
         lock (_processLock)
@@ -155,6 +269,7 @@ public class WindowsAudioPlayer : IAudioPlayer
         }
     }
 
+    /* Resumes the paused players */
     public void Resume()
     {
         lock (_processLock)
@@ -164,6 +279,7 @@ public class WindowsAudioPlayer : IAudioPlayer
         }
     }
     
+    /* Cancels the current playback, then stops and closes the active players */
     public void Stop()
     {
         lock (_processLock)
