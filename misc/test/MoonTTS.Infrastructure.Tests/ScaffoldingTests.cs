@@ -1,6 +1,8 @@
 using MoonTTS.Core.Services;
 using MoonTTS.Domain.ValueObjects;
+#if !WINDOWS
 using MoonTTS.Infrastructure.Audio.Linux;
+#endif
 using MoonTTS.Infrastructure.Tts;
 using MoonTTS.Tests.DummyEngine;
 
@@ -36,6 +38,8 @@ public sealed class ScaffoldingTests
         Assert.All(chunks, c => Assert.Equal(10, c.Length));
     }
 
+#if !WINDOWS
+    /* Linux audio types only exist outside the Windows build */
     /* A dummy tool on PATH answers in place of the real OS program and records its arguments */
     [Fact(Skip = "Dummy tools are POSIX shell scripts", SkipWhen = nameof(TestPlatform.IsWindows), SkipType = typeof(TestPlatform))]
     [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
@@ -50,4 +54,5 @@ public sealed class ScaffoldingTests
         Assert.Equal([new LinuxSink("speakers", "Speakers")], sinks);
         Assert.Equal(["list sinks"], tools.GetInvocations("pactl"));
     }
+#endif
 }
