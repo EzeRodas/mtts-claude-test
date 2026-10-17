@@ -208,7 +208,7 @@ public class JsonConfigurationRepository : IConfigurationRepository
         ProfileData.ActiveProfileName = profileName;
         
         /* Saves the profiles.json to remember the newly active profile */
-        string profilesPath = Path.Combine("audio", "profiles", "profiles.json");
+        string profilesPath = Path.Combine("audio", "hotkeys", "profiles.json");
         SaveInternal(profilesPath, ProfileData, AppJsonContext.Default.ProfileDataStore);
         ProfilesChanged?.Invoke();
         

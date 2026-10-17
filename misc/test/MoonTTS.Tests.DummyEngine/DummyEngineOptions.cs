@@ -30,8 +30,29 @@ public sealed class DummyEngineOptions
     public string CrashOnText { get; set; } = "crash";
     public string ErrorOnText { get; set; } = "error";
 
+    /* Text that makes the worker answer Synthesize with a Pong frame (a protocol violation) */
+    public string UnexpectedOpcodeOnText { get; set; } = "unexpected-opcode";
+
+    /* Text that makes the worker answer Synthesize with an Error frame whose payload is not JSON */
+    public string UnreadableErrorOnText { get; set; } = "unreadable-error";
+
+    /* When set, Synthesize exits the worker with code 3 after sending this many chunks */
+    public int? CrashAfterChunks { get; set; }
+
+    /* When set, MetadataResponse reports this engine id instead of EngineId (EngineId stays in engine.json) */
+    public string? ReportedEngineId { get; set; }
+
+    /* When true, the worker keeps running after stdin reaches end of file (a worker that ignores shutdown) */
+    public bool HangOnStdinClose { get; set; }
+
     /* When set, every received frame is appended to this file as "<Opcode> <payload>" */
     public string? RequestLogPath { get; set; }
+
+    /* When set, the worker appends "shutdown" or "stdin-closed" to this file when its frame loop ends */
+    public string? ExitLogPath { get; set; }
+
+    /* When set, the worker writes its process id to this file on startup */
+    public string? PidFilePath { get; set; }
 }
 
 /* A voice reported by ListVoices */

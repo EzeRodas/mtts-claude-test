@@ -10,6 +10,9 @@ var options = File.Exists(DummyEngineOptions.FileName)
     ? JsonSerializer.Deserialize<DummyEngineOptions>(File.ReadAllText(DummyEngineOptions.FileName)) ?? new DummyEngineOptions()
     : new DummyEngineOptions();
 
+if (options.PidFilePath != null)
+    File.WriteAllText(options.PidFilePath, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
 var input = Console.OpenStandardInput();
 var output = Console.OpenStandardOutput();
 Console.SetOut(Console.Error);
@@ -31,6 +34,13 @@ async Task Send(EngineOpcode opcode, ReadOnlyMemory<byte> payload)
 Task SendError(string code, string message) =>
     Send(EngineOpcode.Error, JsonSerializer.SerializeToUtf8Bytes(new EngineErrorMessage { Code = code, Message = message }, json.EngineErrorMessage));
 
+/* Records why the frame loop ended, so tests can tell a graceful exit from a kill */
+void LogExit(string reason)
+{
+    if (options.ExitLogPath != null)
+        File.AppendAllText(options.ExitLogPath, reason + "\n");
+}
+
 /* Streams the scripted chunks for one Synthesize request */
 async Task Synthesize(SynthesizeRequest request, CancellationToken token)
 {
@@ -44,11 +54,26 @@ async Task Synthesize(SynthesizeRequest request, CancellationToken token)
         await SendError("synthesis_failed", "dummy synthesis error");
         return;
     }
+    if (request.Text == options.UnexpectedOpcodeOnText)
+    {
+        await Send(EngineOpcode.Pong, ReadOnlyMemory<byte>.Empty);
+        return;
+    }
+    if (request.Text == options.UnreadableErrorOnText)
+    {
+        await Send(EngineOpcode.Error, "this is not json"u8.ToArray());
+        return;
+    }
 
     for (int i = 0; i < options.ChunksPerRequest; i++)
     {
         if (token.IsCancellationRequested && !options.IgnoreCancel)
             break;
+        if (options.CrashAfterChunks == i)
+        {
+            Console.Error.WriteLine("dummy engine crashing mid-stream on purpose");
+            Environment.Exit(3);
+        }
         await Send(EngineOpcode.AudioChunk, Enumerable.Repeat((byte)i, options.ChunkSize).ToArray());
         if (options.ChunkDelayMs > 0)
             await Task.Delay(options.ChunkDelayMs);
@@ -84,7 +109,7 @@ while (await EngineIpcProtocol.ReadFrameAsync(input) is { } frame)
             }
             await Send(EngineOpcode.MetadataResponse, JsonSerializer.SerializeToUtf8Bytes(new EngineMetadataMessage
             {
-                EngineId = options.EngineId,
+                EngineId = options.ReportedEngineId ?? options.EngineId,
                 EngineName = "Dummy Engine",
                 Version = "1.0.0",
                 AudioFormat = new EngineAudioFormat { SampleRate = options.SampleRate, Channels = options.Channels, BitDepth = options.BitDepth },
@@ -120,6 +145,7 @@ while (await EngineIpcProtocol.ReadFrameAsync(input) is { } frame)
             break;
 
         case EngineOpcode.Shutdown:
+            LogExit("shutdown");
             return 0;
 
         default:
@@ -127,6 +153,10 @@ while (await EngineIpcProtocol.ReadFrameAsync(input) is { } frame)
             break;
     }
 }
+
+LogExit("stdin-closed");
+if (options.HangOnStdinClose)
+    await Task.Delay(Timeout.Infinite);
 
 if (activeJob != null)
     await activeJob;

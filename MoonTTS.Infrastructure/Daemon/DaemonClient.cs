@@ -12,6 +12,8 @@ using MoonTTS.Infrastructure.Persistence;
 namespace MoonTTS.Infrastructure.Daemon;
 
 /* File Structure:
+        - DaemonClient()
+        - DaemonClient(Func<ProcessStartInfo, Process?> launchProcess)
         - IsRunningAsync(int timeoutMs) : Task<bool>
         - EnsureRunningAsync() : Task<Result>
         - StreamSpeechAsync(string text, float? speed, CancellationToken ct) : Task<Result<(AudioFormat Format, IAsyncEnumerable<ReadOnlyMemory<byte>> Chunks)>>
@@ -24,6 +26,20 @@ namespace MoonTTS.Infrastructure.Daemon;
 
 public class DaemonClient
 {
+    /* Starts the background daemon process */
+    private readonly Func<ProcessStartInfo, Process?> _launchProcess;
+
+    /* Spawns the daemon as a regular OS process */
+    public DaemonClient() : this(Process.Start)
+    {
+    }
+
+    /* Spawns the daemon through the given launcher instead of Process.Start (used to keep tests in-process) */
+    public DaemonClient(Func<ProcessStartInfo, Process?> launchProcess)
+    {
+        _launchProcess = launchProcess;
+    }
+
     /* Sees if the daemon is listening */
     public async Task<bool> IsRunningAsync(int timeoutMs = 200)
     {
@@ -43,6 +59,7 @@ public class DaemonClient
         }
     }
 
+    /* Starts "<this executable> daemon run" unless the daemon already listens, then waits for its pipe */
     public async Task<Result> EnsureRunningAsync()
     {
         if (await IsRunningAsync()) return Result.Success();
@@ -68,7 +85,7 @@ public class DaemonClient
 
         try
         {
-            Process.Start(startInfo);
+            _launchProcess(startInfo);
         }
         catch (Exception ex)
         {
