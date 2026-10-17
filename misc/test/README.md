@@ -48,6 +48,7 @@ Nothing talks to the real OS. Each OS boundary is replaced by a dummy that answe
 | D-Bus desktop portal (Wayland shortcuts) | A private `dbus-daemon` with a dummy `org.freedesktop.portal.Desktop` service. |
 | Native OS APIs (X11, Win32, macOS Carbon / CoreAudio) | Dummy implementations of the native-API interfaces the hooks and players receive in their constructors. |
 | Windowing system (Avalonia) | `Avalonia.Headless.XUnit`. |
+| Named pipes (daemon, single instance) | On Linux/macOS pipes are Unix sockets under `$TMPDIR`. .NET fixes that folder the first time a process uses a pipe, so each test project points `TMPDIR` at a private folder **once per test process** (assembly fixture / module initializer), never per test. |
 | Application services | `FakeConfigurationRepository`, `FakeAudioPlayer`, `FakeTtsEngine`, `FakeTtsEngineFactory`, `FakeModelRegistry`, `FakeModelDownloader`, `FakeSpeechPipeline`, `FakeGlobalShortcutHook`. |
 
 ## Conventions
@@ -58,3 +59,11 @@ Nothing talks to the real OS. Each OS boundary is replaced by a dummy that answe
 - Platform-specific tests skip themselves with `SkipWhen`/`SkipUnless` and `TestPlatform`, e.g. `[Fact(Skip = "POSIX only", SkipWhen = nameof(TestPlatform.IsWindows), SkipType = typeof(TestPlatform))]`.
 - Pass `TestContext.Current.CancellationToken` to async APIs.
 - Tests create their files inside a `TempDirectory`, never in the real user folders.
+
+## Platform coverage and known limits
+
+- Run on Linux, every test runs except the macOS/Windows-only cases, which skip themselves. On a Windows host `MoonTTS.Infrastructure.Tests` also builds for `net10.0-windows` and runs the `WindowsAudioPlayer` tests; Linux-only test files are wrapped in `#if !WINDOWS`, like the production code they test.
+- Windows cannot redirect the per-user folders or the global pipe namespace, so the repository, folder-creating and pipe tests skip there.
+- The real native implementations behind the seams (`X11Api`, `Win32HotkeyApi`, `MacCarbonHotKeyApi`, `MacKeyboardLayoutApi`, `MacCoreAudioApi`, `NAudioWaveOutApi`) only forward to the OS and are not unit-tested; everything that uses them is tested against dummies.
+- Not reachable without further seams: the daemon's 5-minute idle stop (no injectable clock), `daemon start` spawning a real daemon from the CLI, and the desktop startup path of `App` (real OS shortcut hook and single-instance server).
+

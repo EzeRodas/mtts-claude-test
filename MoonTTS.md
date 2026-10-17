@@ -104,6 +104,7 @@ flowchart TD
 * **MoonTTS.Engine.Protocol/**: Public engine IPC contract shared by the host and C# engine workers (see 3.7).
 * **Engines/**: Source of out-of-process engine workers. They are not part of `MoonTTS.slnx`; each is published into the user's engines folder (see 3.8).
 * **IPC-engine-model.md**: Specification of the engine IPC protocol, manifests and discovery.
+* **misc/test/**: Unit test suite (xUnit v3), one test project per production project, run through a single entry point (`misc/test/run-tests.sh` / `run-tests.ps1` / `dotnet test misc/test/MoonTTS.Tests.slnx`). See section 3.9.
 * **README.md**: Project overview and quickstart guide.
 
 ---
@@ -180,16 +181,17 @@ The application service layer implementing business workflows, coordinating mana
 Low-level adapters implementing system-level functionality for audio drivers, OS global shortcuts, ONNX neural inference, background IPC daemons, and storage.
 
 #### Audio Subsystem
-* **MoonTTS.Infrastructure/Audio/AudioPlayerManager.cs**: Factory that instantiates the operating-system-specific **IAudioPlayer** implementation (`LinuxAudioPlayer` on Linux/macOS, `WindowsAudioPlayer` on Windows).
+* **MoonTTS.Infrastructure/Audio/AudioPlayerManager.cs**: Factory that instantiates the operating-system-specific **IAudioPlayer** implementation (`LinuxAudioPlayer` on Linux/macOS, `WindowsAudioPlayer` on Windows). **MacAudioPlayer** is currently never instantiated: macOS uses the Linux player.
 * **MoonTTS.Infrastructure/Audio/SimdAudioProcessor.cs**: High-performance digital signal processing (DSP) operating in-place on raw PCM `Span<byte>` without memory allocations. Performs volume scaling and boundary de-clicking (fade-in / fade-out smoothing).
 * **MoonTTS.Infrastructure/Audio/Linux/LinuxAudioPlayer.cs**: Linux audio player supporting dual sink playback (Primary + Monitor), sink enumeration, and loopback microphone integration.
 * **MoonTTS.Infrastructure/Audio/Linux/LinuxAudioStreamer.cs**: Manages active child playback processes, streaming zero-copy PCM chunks into `stdin` of `pw-play` or `paplay`.
-* **MoonTTS.Infrastructure/Audio/Linux/LinuxDeviceEnumerator.cs**: Native sink discovery parser parsing `pactl list sinks short` and `wpctl status` for PipeWire/PulseAudio environments.
+* **MoonTTS.Infrastructure/Audio/Linux/LinuxDeviceEnumerator.cs**: Native sink discovery parser parsing `pactl list sinks` and, as a fallback, `wpctl status` (node id + description) for PipeWire/PulseAudio environments.
 * **MoonTTS.Infrastructure/Audio/Linux/LinuxProcessRunner.cs**: Process execution harness launching `pw-play` or `paplay` with appropriate sample format flags.
 * **MoonTTS.Infrastructure/Audio/Linux/LinuxVirtualMicService.cs**: Manages lifecycle of the PipeWire/PulseAudio null-sink virtual microphone (`MoonTTS_Virtual_Mic`).
-* **MoonTTS.Infrastructure/Audio/WindowsAudioPlayer.cs**: Windows audio player adapter utilizing WASAPI / PowerShell audio fallback.
-* **MoonTTS.Infrastructure/Audio/MacOS/MacAudioPlayer.cs**: macOS audio player adapter using CoreAudio / `afplay`.
-* **MoonTTS.Infrastructure/Audio/MacOS/MacCoreAudioApi.cs**: Interop declarations for macOS CoreAudio device management.
+* **MoonTTS.Infrastructure/Audio/WindowsAudioPlayer.cs**: Windows audio player adapter (`net10.0-windows` only) playing PCM wrapped as WAV on the primary and monitor waveOut devices at once. Receives its native surface through **IWaveOutApi** (`IWaveOutApi.cs`, `IWaveOutPlayer.cs`; default `NAudioWaveOutApi` / `NAudioWaveOutPlayer` over NAudio).
+* **MoonTTS.Infrastructure/Audio/MacOS/MacAudioPlayer.cs**: macOS audio player adapter over AudioQueue, building the queue format from the engine's **AudioFormat** and routing to the selected device. Receives its native surface through **ICoreAudioApi**.
+* **MoonTTS.Infrastructure/Audio/MacOS/ICoreAudioApi.cs** / **MacCoreAudioApi.cs**: CoreAudio / AudioToolbox native surface and its P/Invoke implementation.
+* **MoonTTS.Infrastructure/Audio/MacOS/MacCoreFoundationStrings.cs**: CFString conversion helpers.
 
 #### Engine Host Subsystem
 * **MoonTTS.Infrastructure/Tts/EngineCatalog.cs**: **IModelRegistry** implementation that scans `<data>/Moon-TTS/engines/<Name>/engine.json` and builds **EngineDescriptor** / **ModelMetadata** entries. Invalid manifests are reported and skipped; no engine is referenced by host code.
@@ -201,16 +203,17 @@ Low-level adapters implementing system-level functionality for audio drivers, OS
 * **MoonTTS.Infrastructure/Tts/HttpModelDownloader.cs**: Implements chunked HTTP file streaming with progress calculation and cancellation support.
 
 #### OS Global Shortcut Hooks
-* **MoonTTS.Infrastructure/OS/GlobalShortcutManager.cs**: Cross-platform shortcut hook coordinator. Detects Wayland (`XDG_SESSION_TYPE=wayland`), X11, macOS, or Windows, and instantiates the matching hook implementation.
+* **MoonTTS.Infrastructure/OS/GlobalShortcutManager.cs**: Cross-platform shortcut hook coordinator. `CreatePlatformHook()` detects Wayland (`WAYLAND_DISPLAY` set), X11, macOS, or Windows and instantiates the matching hook implementation; a second constructor accepts the **IGlobalShortcutHook** to use.
 * **MoonTTS.Infrastructure/OS/Linux/Wayland/WaylandShortcutHook.cs**: Implementation of **IGlobalShortcutHook** for Wayland compositors (KDE Plasma, GNOME) using `Tmds.DBus.Protocol` (v0.94.1) for direct, zero-reflection binary D-Bus framing. Translates shortcuts to standard XDG keysym strings (`CTRL+ALT+m`) and registers them via Freedesktop Desktop Portal sessions.
-* **MoonTTS.Infrastructure/OS/Linux/X11/X11ShortcutHook.cs**: Implementation of **IGlobalShortcutHook** using X11 `XGrabKey`.
-* **MoonTTS.Infrastructure/OS/Windows/WindowsShortcutHook.cs**: Windows Win32 `RegisterHotKey` global shortcut implementation.
-* **MoonTTS.Infrastructure/OS/MacOS/MacShortcutHook.cs**: macOS global event tap hook implementation with generic, AOT-safe native marshalling (`Marshal.SizeOf<T>`).
-* **MoonTTS.Infrastructure/OS/MacOS/MacDynamicKeyMap.cs**: Keycode translation table for macOS Carbon virtual keycodes.
+* **MoonTTS.Infrastructure/OS/Linux/X11/X11ShortcutHook.cs**: Implementation of **IGlobalShortcutHook** using X11 `XGrabKey` (every lock-key variant). Receives Xlib through **IX11Api** (`IX11Api.cs`; default `X11Api.cs`, which holds the `LibX11` P/Invoke declarations). `Dispose` waits for the event thread before closing the display.
+* **MoonTTS.Infrastructure/OS/Windows/WindowsShortcutHook.cs**: Windows Win32 `RegisterHotKey` global shortcut implementation running its own message loop. Receives user32/kernel32 through **IWin32HotkeyApi** (`IWin32HotkeyApi.cs`; default `Win32HotkeyApi.cs`).
+* **MoonTTS.Infrastructure/OS/MacOS/MacShortcutHook.cs**: macOS Carbon hot-key implementation with generic, AOT-safe native marshalling (`Marshal.SizeOf<T>`). Receives Carbon through **IMacCarbonHotKeyApi** (`IMacCarbonHotKeyApi.cs`; default `MacCarbonHotKeyApi.cs`).
+* **MoonTTS.Infrastructure/OS/MacOS/MacDynamicKeyMap.cs**: Keycode translation for macOS virtual keycodes, read from the active keyboard layout through **IMacKeyboardLayoutApi** (`IMacKeyboardLayoutApi.cs`; default `MacKeyboardLayoutApi.cs`), with a QWERTY fallback.
+* **Native-API seams**: every class above that calls the OS directly keeps a parameterless constructor using the real native implementation (so the app is unchanged) and a constructor accepting the interface, which the unit tests use to run against dummy OS implementations.
 
 #### Background IPC Daemon
-* **MoonTTS.Infrastructure/Daemon/DaemonServer.cs**: Background server process that keeps the ONNX neural model resident in memory and listens on a local Named Pipe (`Moon-TTS_Daemon_<user>`). Executes sentence-chunked synthesis via **TextSplitter** and streams binary PCM frames (`AudioChunk`) to connected clients with a 5-minute auto-shutdown timer.
-* **MoonTTS.Infrastructure/Daemon/DaemonClient.cs**: Client that connects to the daemon, validates connectivity, and initiates streaming synthesis via `StreamSpeechAsync`, returning dynamic audio geometry and an asynchronous stream of raw PCM chunks (`IAsyncEnumerable<ReadOnlyMemory<byte>>`).
+* **MoonTTS.Infrastructure/Daemon/DaemonServer.cs**: Background server process that keeps the ONNX neural model resident in memory and listens on a local Named Pipe (`Moon-TTS_Daemon_<user>`). Executes sentence-chunked synthesis via **TextSplitter** and streams binary PCM frames (`AudioChunk`) to connected clients with a 5-minute auto-shutdown timer. Keeps an extra pipe instance listening while a client is served (up to 2 instances, the first created with `FirstPipeInstance`), so the CLI's probe-then-request pattern is never reset, and retries every second when the pipe cannot be created.
+* **MoonTTS.Infrastructure/Daemon/DaemonClient.cs**: Client that connects to the daemon, validates connectivity, and initiates streaming synthesis via `StreamSpeechAsync`, returning dynamic audio geometry and an asynchronous stream of raw PCM chunks (`IAsyncEnumerable<ReadOnlyMemory<byte>>`). A second constructor accepts the process launcher used to auto-spawn the daemon.
 * **MoonTTS.Infrastructure/Daemon/DTOs/DaemonOpcode.cs**: Enumeration defining protocol frame packet types (`Request`, `Cancel`, `Response`, `AudioChunk`, `AudioEnd`, `Error`).
 * **MoonTTS.Infrastructure/Daemon/DTOs/DaemonIpcProtocol.cs**: Binary framing protocol utilities (`[1-byte opcode][4-byte payload length big-endian][payload]`) and static methods (`WriteFrameAsync`, `ReadFrameAsync`) operating directly over duplex `Stream` instances.
 * **MoonTTS.Infrastructure/Daemon/DTOs/DaemonRequest.cs**: Data transfer object defining control and synthesis requests (`Action`, `Text`, `Speed`).
@@ -235,7 +238,7 @@ The desktop presentation layer built with Avalonia UI following the MVVM pattern
 * **MoonTTS.Avalonia/Views/MainWindow.axaml**: Modern, borderless, rounded HUD user interface with text input box, custom drag handle, settings button, playback state controls, and stop buttons.
 * **MoonTTS.Avalonia/Views/MainWindow.axaml.cs**: Code-behind handling window drag tracking, bottom-center screen positioning across multiple monitors, and graceful hide-on-close interception.
 * **MoonTTS.Avalonia/Views/SettingsWindow.axaml**: Dual-mode, borderless settings window displaying either a compact Quick Settings card (anchored directly above HUD settings button) or an expanded 2-column Advanced Settings dashboard with sidebar navigation. Features centralized color palette constants (`<Window.Resources>`), class-based styles (`<Window.Styles>`), tooltip percentage indicators on volume sliders, and interactive hotkey recording buttons.
-* **MoonTTS.Avalonia/Views/SettingsWindow.axaml.cs**: Code-behind managing window geometry morphing (Quick 320x440 vs Advanced 760x540), horizontal centering relative to the HUD, monitor working area clamping, click-outside auto-dismissal via `Deactivated` event, and tunneling preview keyboard interception (`RoutingStrategies.Tunnel`) for interactive hotkey recording.
+* **MoonTTS.Avalonia/Views/SettingsWindow.axaml.cs**: Code-behind managing window geometry morphing (Quick 320x550 vs Advanced 760x540), horizontal centering relative to the HUD, monitor working area clamping, click-outside auto-dismissal via `Deactivated` event, and tunneling preview keyboard interception (`RoutingStrategies.Tunnel`) for interactive hotkey recording.
 * **MoonTTS.Avalonia/Services/IWindowService.cs**: Contract for controlling main window visibility, toggling/hiding settings window, and desktop shutdown.
 * **MoonTTS.Avalonia/Services/WindowService.cs**: Manages window display state, restoring previous screen coordinates upon reveal, hiding on synthesis, lazy-instantiating **SettingsWindow** with shared **ITtsEngineProvider**, and toggling settings visibility.
 * **MoonTTS.Avalonia/Services/SingleInstanceService.cs**: Cross-platform single-instance coordinator operating over a local Named Pipe (`MoonTTS_SingleInstance_<user>`). When a second GUI process starts, it pings the running server with `"toggle"` and immediately exits in under 5ms, avoiding duplicate processes and toggling existing window visibility.
@@ -284,6 +287,15 @@ Standalone executables that are never linked into the host. Each is published in
 
 ---
 
+### 3.9 Unit Tests (`misc/test/`)
+xUnit v3 test projects mirroring the production projects (`MoonTTS.Domain.Tests`, `MoonTTS.Engine.Protocol.Tests`, `MoonTTS.Core.Tests`, `MoonTTS.Infrastructure.Tests`, `MoonTTS.Avalonia.Tests`, `MoonTTS.CLI.Tests`), one `FooTests` class per production class. `misc/test/README.md` documents conventions and how to run them.
+* **misc/test/MoonTTS.Tests.slnx** + **run-tests.sh** / **run-tests.ps1**: single entry point running every test.
+* **misc/test/MoonTTS.Tests.Common/**: shared fakes of the domain interfaces and dummy-OS helpers (`TempDirectory`, `EnvironmentScope` for isolated HOME/XDG folders and PATH, `DummyExecutables` for OS command-line tools, `DummyEngineInstaller`, `TestPlatform`).
+* **misc/test/MoonTTS.Tests.DummyEngine/**: scriptable engine worker speaking the IPC protocol, used to test the engine host against a real process.
+* **Dummy OS**: OS boundaries are replaced by dummies that answer like the OS: dummy `pactl`/`wpctl`/`paplay`/`pw-play`/`pw-cli` on PATH, a private `dbus-daemon` with a dummy desktop portal, dummy X11 / Win32 / Carbon / CoreAudio implementations of the native-API seams, the Avalonia headless platform, and named pipes isolated per test process through `TMPDIR`.
+
+---
+
 ## 4. Class Dependencies & Relationship
 
 | Class                           | Injected Dependencies                                                                          | Interfaces Implemented                 | Collaborators / Calls                                                   |
@@ -308,6 +320,10 @@ Standalone executables that are never linked into the host. Each is published in
 | **SingleInstanceService**       | `IWindowService`                                                                               | `IDisposable`                          | `NamedPipeServerStream`, `NamedPipeClientStream`                        |
 | **MainViewModel**               | `ISpeechPipeline`, `IWindowService`, `HotkeyManager`                                           | None                                   | `RelayCommand`, CommunityToolkit.Mvvm                                   |
 | **DaemonServer**                | `ITtsEngineProvider`, `DictionaryManager`, `SettingsManager`                                   | None                                   | `NamedPipeServerStream`, `DaemonRequest`, `DaemonResponse`              |
+| **X11ShortcutHook**             | `IX11Api` (default `X11Api`)                                                                   | **IGlobalShortcutHook**                | `ShortcutCombo`                                                         |
+| **WindowsShortcutHook**         | `IWin32HotkeyApi` (default `Win32HotkeyApi`)                                                   | **IGlobalShortcutHook**                | `ShortcutCombo`                                                         |
+| **MacShortcutHook**             | `IMacCarbonHotKeyApi`, `IMacKeyboardLayoutApi`                                                 | **IGlobalShortcutHook**                | `MacDynamicKeyMap`, `ShortcutCombo`                                     |
+| **GlobalShortcutManager**       | `IGlobalShortcutHook` (or OS detection)                                                        | `IDisposable`                          | `ShortcutCombo`                                                         |
 | **JsonConfigurationRepository** | None                                                                                           | **IConfigurationRepository**           | `AppJsonContext`, `PathResolver`, `AppConfig`, `ProfileDataStore`        |
 
 > **Single-Instance DI Invariant**: In `App.axaml.cs`, `TtsEngineProvider` must be registered as a singleton forwarding factory (`services.AddSingleton<ITtsEngineProvider, TtsEngineProvider>();` and `services.AddSingleton<TtsEngineProvider>(sp => (TtsEngineProvider)sp.GetRequiredService<ITtsEngineProvider>());`). This guarantees that `SpeechPipeline`, `WindowService`, and `SettingsViewModel` share the exact same runtime instance, allowing active voice selection and model switches to update immediately in memory without restarting.
@@ -464,6 +480,7 @@ sequenceDiagram
 * **Sentence Pipelining over IPC**: When a synthesis request is received, **DaemonServer** sends an initial `Response` frame carrying the engine's dynamic **AudioFormat**, splits long text with **TextSplitter**, and emits `AudioChunk` frames as each sentence completes inference.
 * **Opportunistic CLI Playback**: When `mtts play` is invoked, **PlayCommand** checks whether the daemon is listening. If active, it pipes chunks from `StreamSpeechAsync` directly into `IAudioPlayer.StreamPcmAsync` for instant zero-latency speech without model loading overhead; if inactive, it falls back seamlessly to the in-process **SpeechPipeline**.
 * **Auto-Termination**: Tracks `_lastActivityTime`. If no IPC commands are received for 5 minutes, it automatically cleans up and exits.
+* **Connection Handling**: An instance of the pipe is always listening, including while a client is being served, so a client connecting right after another (the CLI checks the daemon, then reconnects for the request) is queued instead of reset.
 
 ---
 
@@ -480,7 +497,7 @@ sequenceDiagram
 
 ### 5.11 Settings Window, Dual-View UI & Interactive Hotkey Pipeline
 * **Dual-View Architecture**: **SettingsWindow.axaml** operates in two visual modes managed by **SettingsViewModel**:
-  - **Quick Settings Mode** (320x440): A compact card displaying primary and monitoring audio device pickers with live sliders (including real-time hover percentage tooltips), model selection, voice preset dropdowns, and an expand toggle. Anchored directly above the HUD Settings button (`MainWindow.Position.X + 120px * scaling`).
+  - **Quick Settings Mode** (320x550): A compact card displaying primary and monitoring audio device pickers with live sliders (including real-time hover percentage tooltips), model selection, voice preset dropdowns, and an expand toggle. Anchored directly above the HUD Settings button (`MainWindow.Position.X + 120px * scaling`).
   - **Advanced Settings Mode** (760x540): Replicates the full two-column layout from previous iterations (`MTTS-PY`), featuring a left-hand navigation sidebar (General, Audio, Dictionary, TTS Engine, Engine Management, Hotkeys, History) and a dedicated scrollable content viewport. Centered horizontally relative to the main HUD window and clamped dynamically against monitor working area boundaries (`Screen.WorkingArea`).
 * **Auto-Save & Hot-Reload Pipeline**:
   - Eliminates manual "Save" buttons. Every observable property change triggers `AutoSave()`, atomically updating `settings.json`, saving engine-specific JSON configurations (`engine configurations/<model>.json`), and syncing live sinks/volumes with **IAudioPlayer**.
@@ -547,7 +564,7 @@ Moon-TTS stores all user configuration, models, and audio artifacts under standa
 | **Neural TTS (ONNX)** | Full (CPU / DirectML / TensorRT) | Full (CPU / DirectML) | Full (CPU / CoreML) |
 | **Audio Subsystem** | Native (`pw-play` / `paplay`) | WASAPI / Windows Media | CoreAudio / `afplay` |
 | **Virtual Microphone** | Native (`module-null-sink`) | VB-Cable / Virtual Audio Cable | BlackHole Loopback |
-| **Global Shortcuts** | Wayland Portal (`XDG_SESSION_TYPE=wayland`) / X11 (`XGrabKey`) | Win32 (`RegisterHotKey`) | Carbon Event Tap |
+| **Global Shortcuts** | Wayland Portal (`WAYLAND_DISPLAY` set) / X11 (`XGrabKey`) | Win32 (`RegisterHotKey`) | Carbon Event Tap |
 | **Desktop UI (Avalonia)** | Native Wayland & X11 (Software Rendering) | Native Win32 | Native Cocoa |
 | **Single-Instance IPC** | Local Named Pipe (`System.IO.Pipes`) | Local Named Pipe (`System.IO.Pipes`) | Local Named Pipe (`System.IO.Pipes`) |
 | **IPC Daemon** | Local Named Pipe / Unix Domain Sockets | Windows Named Pipes | Local Named Pipe / Unix Domain Sockets |
