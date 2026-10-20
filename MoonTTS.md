@@ -104,6 +104,7 @@ flowchart TD
 * **MoonTTS.Engine.Protocol/**: Public engine IPC contract shared by the host and C# engine workers (see 3.7).
 * **Engines/**: Source of out-of-process engine workers. They are not part of `MoonTTS.slnx`; each is published into the user's engines folder (see 3.8).
 * **IPC-engine-model.md**: Specification of the engine IPC protocol, manifests and discovery.
+* **misc/documentation/**: Developer documentation. `Implementing-Engines.md` is the step-by-step guide to writing, installing and testing a new engine worker.
 * **README.md**: Project overview and quickstart guide.
 
 ---
