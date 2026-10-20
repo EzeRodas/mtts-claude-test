@@ -1,6 +1,7 @@
 using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using MoonTTS.CLI.Utilities;
+using MoonTTS.Core.Services;
 using MoonTTS.Domain.Interfaces;
 
 namespace MoonTTS.CLI.commands;
@@ -25,6 +26,15 @@ public static class SetModelCommand
                 Terminal.Error($"Error: Unknown model '{modelInput}'.");
                 var validModels = modelRegistry.GetAvailableModels().Select(m => m.Id.ToString());
                 Terminal.Muted("Available models: " + string.Join(", ", validModels));
+                return 1;
+            }
+
+            /* Every installed engine's models are listed, but only downloaded ones can be activated */
+            var downloadManager = services.GetRequiredService<DownloadManager>();
+            if (!downloadManager.IsModelDownloaded(model.Id))
+            {
+                Terminal.Error($"Error: Model '{model.Id}' is not installed.");
+                Terminal.Muted($"Download it first with: mtts model download {model.Id}");
                 return 1;
             }
 
