@@ -6,6 +6,7 @@ namespace MoonTTS.Infrastructure.OS.Linux.Wayland;
 
 /* File Structure:
         - InitializeAsync() : Task
+        - RegisterAppIdAsync(DBusConnection connection, bool entryJustWritten) : Task
         - RegisterShortcutAsync(ShortcutCombo? toggleShortcut, Dictionary<string,ShortcutCombo> phraseShortcuts) : Task
         - FormatForWayland(ShortcutCombo combo) : string
         - WaitForResponseAsync(ObjectPath requestPath) : Task<IDictionary<string,object>>
@@ -47,16 +48,13 @@ public class WaylandShortcutHook : IGlobalShortcutHook
         await _connection.ConnectAsync();
         Console.WriteLine($"[WaylandShortcutHook] Connected to D-Bus. UniqueName: {_connection.UniqueName}");
 
-        /* Registers the app ID with the portal registry (required when launched outside an IDE/launcher) */
-        try
-        {
-            await _connection.CallMethodAsync(CreateRegisterMessage(_connection));
-            Console.WriteLine($"[WaylandShortcutHook] Registered AppId '{AppId}' with portal registry.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[WaylandShortcutHook] Registry.Register warning: {ex.Message}");
-        }
+        /* Registers the app ID with the portal registry (required when launched outside an IDE/launcher).
+           The portal only accepts IDs backed by a matching .desktop entry, so it gets provisioned first */
+        var desktopEntry = LinuxDesktopEntry.EnsureInstalled(AppId);
+        if (desktopEntry.IsFailure)
+            Console.WriteLine($"[WaylandShortcutHook] Desktop entry warning: {desktopEntry.ErrorMessage}");
+
+        await RegisterAppIdAsync(_connection, entryJustWritten: desktopEntry.Value);
 
         /* Subscribes to GlobalShortcuts activated signal */
         _activationWatcher = await _connection.WatchSignalAsync<string>(
@@ -86,7 +84,35 @@ public class WaylandShortcutHook : IGlobalShortcutHook
             emitOnCapturedContext: false);
 
         Console.WriteLine("[WaylandShortcutHook] Listening for Activated signals.");
-        return;
+    }
+
+    /* Registers the app ID with the portal registry. It has to be the first portal call on the connection.
+       A freshly written desktop entry reaches the portal through its file monitor, so in that case the
+       registration is retried briefly until the portal has indexed the new entry */
+    private static async Task RegisterAppIdAsync(DBusConnection connection, bool entryJustWritten)
+    {
+        const int retryDelayMs = 200;
+        int maxAttempts = entryJustWritten ? 5 : 1;
+
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await connection.CallMethodAsync(CreateRegisterMessage(connection));
+                Console.WriteLine($"[WaylandShortcutHook] Registered AppId '{AppId}' with portal registry.");
+                return;
+            }
+            catch (DBusErrorReplyException ex) when (attempt < maxAttempts && ex.ErrorName == "org.freedesktop.portal.Error.Failed")
+            {
+                await Task.Delay(retryDelayMs);
+            }
+            catch (Exception ex)
+            {
+                /* Portals older than the Registry interface derive the app ID from the cgroup instead */
+                Console.WriteLine($"[WaylandShortcutHook] Registry.Register warning: {ex.Message}");
+                return;
+            }
+        }
 
         static MessageBuffer CreateRegisterMessage(DBusConnection conn)
         {

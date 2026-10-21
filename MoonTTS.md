@@ -203,7 +203,8 @@ Low-level adapters implementing system-level functionality for audio drivers, OS
 
 #### OS Global Shortcut Hooks
 * **MoonTTS.Infrastructure/OS/GlobalShortcutManager.cs**: Cross-platform shortcut hook coordinator. Detects Wayland (`XDG_SESSION_TYPE=wayland`), X11, macOS, or Windows, and instantiates the matching hook implementation.
-* **MoonTTS.Infrastructure/OS/Linux/Wayland/WaylandShortcutHook.cs**: Implementation of **IGlobalShortcutHook** for Wayland compositors (KDE Plasma, GNOME) using `Tmds.DBus.Protocol` (v0.94.1) for direct, zero-reflection binary D-Bus framing. Translates shortcuts to standard XDG keysym strings (`CTRL+ALT+m`) and registers them via Freedesktop Desktop Portal sessions.
+* **MoonTTS.Infrastructure/OS/Linux/Wayland/WaylandShortcutHook.cs**: Implementation of **IGlobalShortcutHook** for Wayland compositors (KDE Plasma, GNOME) using `Tmds.DBus.Protocol` (v0.94.1) for direct, zero-reflection binary D-Bus framing. Translates shortcuts to standard XDG keysym strings (`CTRL+ALT+m`) and registers them via Freedesktop Desktop Portal sessions, after registering the `com.moontts.app` app ID with the portal registry.
+* **MoonTTS.Infrastructure/OS/Linux/LinuxDesktopEntry.cs**: Provisions the `com.moontts.app.desktop` entry in `$XDG_DATA_HOME/applications` that the XDG Desktop Portal requires before it accepts the app ID registration. Respects the XDG lookup order, never overwrites package/user-owned entries, writes atomically and returns `Result<bool>` (whether the entry was written).
 * **MoonTTS.Infrastructure/OS/Linux/X11/X11ShortcutHook.cs**: Implementation of **IGlobalShortcutHook** using X11 `XGrabKey`.
 * **MoonTTS.Infrastructure/OS/Windows/WindowsShortcutHook.cs**: Windows Win32 `RegisterHotKey` global shortcut implementation.
 * **MoonTTS.Infrastructure/OS/MacOS/MacShortcutHook.cs**: macOS global event tap hook implementation with generic, AOT-safe native marshalling (`Marshal.SizeOf<T>`).
@@ -302,7 +303,8 @@ Standalone executables that are never linked into the host. Each is published in
 | **ExternalTtsEngine**           | `EngineDescriptor`, `ModelMetadata`, `SettingsManager`, `EngineVoiceStore`                     | **ITtsEngine**                         | `EngineProcess`, `EngineIpcProtocol`, `WavWriter`                       |
 | **EngineProcess**               | `EngineDescriptor`                                                                             | `IDisposable`                          | `Process`, `EngineIpcProtocol`, `EngineFrame`                           |
 | **LinuxAudioPlayer**            | None                                                                                           | **IAudioPlayer**                       | `LinuxAudioStreamer`, `LinuxVirtualMicService`, `LinuxDeviceEnumerator` |
-| **WaylandShortcutHook**         | None                                                                                           | **IGlobalShortcutHook**, `IDisposable` | `Tmds.DBus.Protocol.Connection`, `MessageWriter`, `MessageReader`       |
+| **WaylandShortcutHook**         | None                                                                                           | **IGlobalShortcutHook**, `IDisposable` | `Tmds.DBus.Protocol.Connection`, `MessageWriter`, `MessageReader`, `LinuxDesktopEntry` |
+| **LinuxDesktopEntry** (static)  | None                                                                                           | None                                   | `Result<T>`, `Environment.ProcessPath`                                  |
 | **WindowService**               | `MainWindow`, `IClassicDesktopStyleApplicationLifetime`, `SettingsManager`, `IAudioPlayer`, `DownloadManager`, `DictionaryManager`, `HotkeyManager`, `HistoryManager`, `ITtsEngineProvider` | **IWindowService**                     | `MainWindow`, `SettingsWindow`, `SettingsViewModel`, `PixelPoint`, `Screens` |
 | **SettingsViewModel**            | `SettingsManager`, `IAudioPlayer`, `IWindowService`, `DownloadManager`, `DictionaryManager?`, `HotkeyManager?`, `HistoryManager?`, `ITtsEngineProvider?`                                    | None                                   | `ModelStatusItem`, `AudioDeviceInfo`, `DictionaryEntry`, `HotkeyEntry`, `HistoryEntry`, `ShortcutCombo`, `ModelMetadata`, `VoiceInfo`, `EngineConfig` |
 | **SettingsWindow**               | None (DataContext bound to `SettingsViewModel`)                                                | None                                   | `SettingsViewModel`, `MainWindow`, `ShortcutCombo`, `KeyEventArgs`      |
@@ -393,7 +395,10 @@ sequenceDiagram
     participant Portal as org.freedesktop.portal.Desktop
     participant KWin as KDE Plasma / KGlobalAccel
 
+    App->>App: LinuxDesktopEntry.EnsureInstalled("com.moontts.app")
     App->>Bus: Connect to Session Bus
+    App->>Portal: Registry.Register("com.moontts.app")
+    Portal-->>App: App ID bound to connection
     App->>Portal: CreateSession(session_token)
     Portal-->>App: session_handle
     App->>Portal: BindShortcuts(session_handle, bindList, "")
@@ -414,6 +419,7 @@ sequenceDiagram
 ```
 
 1. **Wayland Portal Negotiation**: **WaylandShortcutHook** connects to `org.freedesktop.portal.Desktop` via the user Session Bus using `Tmds.DBus.Protocol`. This direct binary protocol implementation requires zero dynamic proxy generation or reflection, ensuring full Native AOT safety.
+   * **App ID Registration**: The GlobalShortcuts portal rejects host (unsandboxed) apps without an app ID (`An app id is required`). Before any other portal call, the hook calls `org.freedesktop.host.portal.Registry.Register("com.moontts.app")`. The portal only accepts the ID when a matching `com.moontts.app.desktop` entry exists, so **LinuxDesktopEntry.EnsureInstalled** first writes one to `$XDG_DATA_HOME/applications` (atomic `.tmp` + `File.Move`) pointing at the running executable. Entries installed by a package or the user are left untouched; only the generated entry (marked `X-MoonTTS-Generated=true`) is refreshed when the binary moves. If the entry was just written, registration is retried briefly while the portal's file monitor indexes it.
 2. **Session Initialization**: Calls `CreateSessionAsync` to obtain an isolated portal shortcut session path keyed by the client's unique D-Bus connection name.
 3. **Shortcut Formatting**: **FormatForWayland** translates **ShortcutCombo** into XDG keysym strings (e.g. `CTRL+ALT+m`, `Return`, `Escape`).
 4. **Registration**: Subscribes to the `Activated` D-Bus signal via `AddMatchAsync` and invokes `BindShortcuts` writing message parameters directly via `MessageWriter`.
