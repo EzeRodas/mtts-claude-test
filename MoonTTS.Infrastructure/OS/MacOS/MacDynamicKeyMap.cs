@@ -18,8 +18,8 @@ namespace MoonTTS.Infrastructure.OS.MacOS;
             - dlopen(string path, int mode) : nint
             - dlsym(nint handle, string symbol) : nint
             - dlclose(nint handle) : nint
-            - TTSCopyCurrentKeyboardInputSource() : nint
-            - TTSGetInputSourceProperty(nint inputSource, nint propertyKey) : nint
+            - TISCopyCurrentKeyboardInputSource() : nint
+            - TISGetInputSourceProperty(nint inputSource, nint propertyKey) : nint
             - LMGetKbdType() : uint
             - UCKeyTranslate(
                 nint keyLayoutPtr, 
@@ -40,6 +40,7 @@ internal static class MacDynamicKeyMap
 {
     private static Dictionary<string, uint>? _dynamicMap;
 
+    /* Looks up the macOS virtual keycode for a normalized ShortcutCombo main key */
     public static bool TryGetKeyCode(string mainKey, out uint keyCode)
     {
         if (_dynamicMap == null)
@@ -55,26 +56,43 @@ internal static class MacDynamicKeyMap
     {
         _dynamicMap = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
 
-        /* Gets the Apple CoreFoundation pointer for the layout property */
-        IntPtr libHandle = LibMac.dlopen(LibMac.CarbonLib,  2);
-        IntPtr symbolPtr = LibMac.dlsym(libHandle, "kTTSPropertyUnicodeKeyLayoutData");
+        /* Gets the Apple Carbon Text Input Sources (TIS) pointer for the layout property */
+        IntPtr libHandle = LibMac.dlopen(LibMac.CarbonLib, 2);
+        if (libHandle == IntPtr.Zero)
+        {
+            LoadQwertyFallback();
+            return;
+        }
+
+        IntPtr symbolPtr = LibMac.dlsym(libHandle, "kTISPropertyUnicodeKeyLayoutData");
+        if (symbolPtr == IntPtr.Zero)
+        {
+            LibMac.dlclose(libHandle);
+            LoadQwertyFallback();
+            return;
+        }
+
         IntPtr propertyKey = Marshal.ReadIntPtr(symbolPtr);
         
         /* Gets the user's current keyboard layout */
-        IntPtr currentKeyboard = LibMac.TTSCopyCurrentKeyboardInputSource();
+        IntPtr currentKeyboard = LibMac.TISCopyCurrentKeyboardInputSource();
         if (currentKeyboard == IntPtr.Zero)
         {
+            LibMac.dlclose(libHandle);
             LoadQwertyFallback();
             return;
         }
+
         /* Gets raw byte data of the layout */
-        IntPtr layoutData = LibMac.TTSGetInputSourceProperty(currentKeyboard, propertyKey);
+        IntPtr layoutData = LibMac.TISGetInputSourceProperty(currentKeyboard, propertyKey);
         if (layoutData == IntPtr.Zero)
         {
             LibMac.CFRelease(currentKeyboard);
+            LibMac.dlclose(libHandle);
             LoadQwertyFallback();
             return;
         }
+
         IntPtr keyboardLayoutPtr = LibMac.CFDataGetBytePtr(layoutData);
         
         /* Loops through every physical key (0-127) and checks what letter produces */
@@ -116,20 +134,26 @@ internal static class MacDynamicKeyMap
         AddFallbackNonPrintables();
     }
 
+    /* Populates layout-independent virtual keycodes for function, navigation, and editing keys */
     private static void AddFallbackNonPrintables()
     {
         var staicKeys = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase)
         {
             {"F1", 0x7A}, {"F2", 0x78}, {"F3", 0x63}, {"F4", 0x76}, {"F5", 0x60},
             {"F6", 0x61}, {"F7", 0x62}, {"F8", 0x64}, {"F9", 0x65}, {"F10", 0x6D},
-            {"F11", 0x67}, {"F12", 0x6F},
+            {"F11", 0x67}, {"F12", 0x6F}, {"F13", 0x69}, {"F14", 0x6B}, {"F15", 0x71},
+            {"F16", 0x6A}, {"F17", 0x40}, {"F18", 0x4F}, {"F19", 0x50}, {"F20", 0x5A},
             {"SPACE", 0x31}, {"RETURN", 0x24}, {"ENTER", 0x24}, {"TAB", 0x30},
-            {"ESCAPE", 0x35}, {"ESC", 0x35}, {"DELETE", 0x33}, {"BACKSPACE", 0x33},
+            {"ESCAPE", 0x35}, {"ESC", 0x35}, {"BACKSPACE", 0x33}, {"DELETE", 0x75}, {"DEL", 0x75},
+            {"INSERT", 0x72}, {"INS", 0x72},
             {"HOME", 0x73}, {"END", 0x77}, {"PAGEUP", 0x74}, {"PAGEDOWN", 0x79},
-            {"LEFTARROW", 0x7B}, {"RIGHTARROW", 0x7C}, {"DOWNARROW", 0x7D}, {"UPARROW", 0x7E}
+            {"LEFT", 0x7B}, {"LEFTARROW", 0x7B},
+            {"RIGHT", 0x7C}, {"RIGHTARROW", 0x7C},
+            {"DOWN", 0x7D}, {"DOWNARROW", 0x7D},
+            {"UP", 0x7E}, {"UPARROW", 0x7E}
         };
 
-        foreach (var kvp in  staicKeys)
+        foreach (var kvp in staicKeys)
         {
             if (!_dynamicMap!.ContainsKey(kvp.Key))
             {
@@ -179,10 +203,10 @@ internal static class MacDynamicKeyMap
         public static extern IntPtr dlclose(IntPtr handle);
 
         [DllImport(CarbonLib)]
-        public static extern IntPtr TTSCopyCurrentKeyboardInputSource();
+        public static extern IntPtr TISCopyCurrentKeyboardInputSource();
         
         [DllImport(CarbonLib)]
-        public static extern IntPtr TTSGetInputSourceProperty(IntPtr inputSource, IntPtr propertyKey);
+        public static extern IntPtr TISGetInputSourceProperty(IntPtr inputSource, IntPtr propertyKey);
         
         [DllImport(CarbonLib)]
         public static extern uint LMGetKbdType();

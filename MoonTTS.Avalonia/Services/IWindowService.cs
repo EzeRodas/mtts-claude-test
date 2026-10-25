@@ -5,6 +5,9 @@ public interface IWindowService
     /* Shows and activates the main application window */
     void ShowMainWindow();
 
+    /* Shows the main application window only if it is hidden (never toggles it away) */
+    void RevealMainWindow();
+
     /* Hides the main application window to tray */
     void HideMainWindow();
 

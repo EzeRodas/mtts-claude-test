@@ -127,7 +127,7 @@ public partial class SettingsWindow : Window
         }
     }
 
-    /* Checks if the key is purely a modifier */
+    /* Checks if the key is purely a modifier or system/lock key that should not terminate recording */
     private static bool IsPureModifierKey(Key key) =>
         key
             is Key.LeftCtrl
@@ -137,7 +137,11 @@ public partial class SettingsWindow : Window
                 or Key.LeftShift
                 or Key.RightShift
                 or Key.LWin
-                or Key.RWin;
+                or Key.RWin
+                or Key.System
+                or Key.None
+                or Key.CapsLock
+                or Key.NumLock;
 
     /* Formats the pressed key to match ShortcutCombo standard names */
     private static string? ConvertKeyToStandardString(Key key)

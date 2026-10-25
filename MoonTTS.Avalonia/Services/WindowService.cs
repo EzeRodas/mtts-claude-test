@@ -89,27 +89,40 @@ public class WindowService : IWindowService
     /* Shows and activates the main window, restoring to previous screen position */
     public void ShowMainWindow()
     {
-        _desktop.MainWindow ??= _mainWindow;
-        
-        if (!_mainWindow.IsActive)
+        if (!_mainWindow.IsVisible)
         {
-            _mainWindow.Show();
-            var config = _settingsManager.CurrentAppConfig;
-            if (config.RememberPosition && _lastPos != default)
-            {
-                _mainWindow.Position = _lastPos;
-            } 
-            else if (!config.RememberPosition)
-            {
-                _mainWindow.PositionAtBottomCenter(monitorIndex: config.DefaultMonitor);
-            }
-            _mainWindow.Activate();
+            ShowAndPositionMainWindow();
         }
         else
         {
-            /* Block so clicking on the tray icon also hides the window if active */
+            /* Block so clicking on the tray icon or pressing the toggle shortcut hides the window if visible */
             HideMainWindow();
         }
+    }
+
+    /* Brings the main window back if it is hidden, without toggling it away when already visible */
+    public void RevealMainWindow()
+    {
+        if (!_mainWindow.IsVisible)
+            ShowAndPositionMainWindow();
+    }
+
+    /* Shows, positions and activates the main window according to the position settings */
+    private void ShowAndPositionMainWindow()
+    {
+        _desktop.MainWindow ??= _mainWindow;
+
+        _mainWindow.Show();
+        var config = _settingsManager.CurrentAppConfig;
+        if (config.RememberPosition && _lastPos != default)
+        {
+            _mainWindow.Position = _lastPos;
+        } 
+        else if (!config.RememberPosition)
+        {
+            _mainWindow.PositionAtBottomCenter(monitorIndex: config.DefaultMonitor);
+        }
+        _mainWindow.Activate();
     }
 
     /* Caches the current screen position and hides the main window */
@@ -137,12 +150,6 @@ public class WindowService : IWindowService
     public void ExitApplication()
     {
         var config = _settingsManager.CurrentAppConfig;
-        _mainWindow.IsExiting = true;
-        if (_settingsManager != null)
-        {
-            _settingsWindow.IsExiting = true;
-            _settingsWindow.Close();
-        }
         if (config.RememberPosition)
         {
             /* Uses cached pos if window is hidden */
@@ -154,7 +161,16 @@ public class WindowService : IWindowService
                 _settingsManager.SaveAppConfig(config);
             }
         }
-        
+
+        if (_settingsWindow != null)
+        {
+            _settingsWindow.IsExiting = true;
+            _settingsWindow.Close();
+        }
+
+        _mainWindow.IsExiting = true;
+        _mainWindow.Close();
+
         _desktop.Shutdown();
     }
 

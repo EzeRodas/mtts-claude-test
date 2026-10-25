@@ -9,6 +9,16 @@ using MoonTTS.Domain.Interfaces;
 
 namespace MoonTTS.Avalonia.ViewModels;
 
+/* File Structure:
+        - MainViewModel()
+        - MainViewModel(ISpeechPipeline?, IWindowService?, HotkeyManager)
+        - CanPlay : bool
+        - PlayAsync() : Task
+        - ShowStatusAsync(string message) : void
+        - Stop() : void
+        - PauseResume() : void
+*/
+
 public partial class MainViewModel : ViewModelBase
 {
     private readonly ISpeechPipeline? _speechPipeline;
@@ -27,6 +37,9 @@ public partial class MainViewModel : ViewModelBase
     private bool _isSynthesizing;
 
     [ObservableProperty] private bool _isPaused;
+
+    /* Transient feedback shown in the popup above the input box (e.g. no model selected) */
+    [ObservableProperty] private string? _statusMessage;
 
     /* Constructor */
     public MainViewModel() : this(null, null, null) { }
@@ -57,7 +70,8 @@ public partial class MainViewModel : ViewModelBase
 
     public bool CanPlay => !IsSynthesizing && !string.IsNullOrWhiteSpace(TextToSpeak);
 
-    /* Initiates speech synthesis and streaming playback for the entered text */
+    /* Initiates speech synthesis and streaming playback for the entered text.
+       On failure the text is restored and the error is shown in the status popup */
     [RelayCommand(CanExecute = nameof(CanPlay))]
     private async Task PlayAsync()
     {
@@ -67,16 +81,45 @@ public partial class MainViewModel : ViewModelBase
         TextToSpeak = string.Empty;
         IsSynthesizing = true;
         IsPaused = false;
+        StatusMessage = null;
 
         try
         {
             _windowService?.HideOnSynth();
-            await _speechPipeline.SpeakAsync(text);
+            var result = await _speechPipeline.SpeakAsync(text);
+
+            /* A cancellation comes from the user pressing Stop, so it is not reported */
+            if (result.IsFailure && result.ErrorMessage != SpeechPipeline.CancelledMessage)
+            {
+                if (string.IsNullOrEmpty(TextToSpeak))
+                    TextToSpeak = text;
+
+                /* HideOnSynth may have hidden the window; bring it back so the popup and restored text are visible */
+                _windowService?.RevealMainWindow();
+                ShowStatusAsync(result.ErrorMessage ?? "Speech synthesis failed.");
+            }
         }
         finally
         {
             IsPaused = false;
             IsSynthesizing = false;
+        }
+    }
+
+    /* Shows a transient message in the status popup and clears it after a few seconds,
+       unless a newer message replaced it in the meantime */
+    private async void ShowStatusAsync(string message)
+    {
+        try
+        {
+            StatusMessage = message;
+            await Task.Delay(5000);
+            if (StatusMessage == message)
+                StatusMessage = null;
+        }
+        catch
+        {
+            /* Ignored */
         }
     }
     

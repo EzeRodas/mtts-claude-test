@@ -6,9 +6,11 @@ namespace MoonTTS.Infrastructure.OS.Linux.X11;
 
 /* File Structure:
         - InitializeAsync() : Task
-        - RegisterShortcutAsync(string toggleShortcut, Dictionary<string,object> phraseShortcuts) : Task
-        - RegisterSingleShortcut(string id, string comboString) : void
+        - RegisterShortcutAsync(ShortcutCombo? toggleShortcut, Dictionary<string, ShortcutCombo> phraseShortcuts) : Task
+        - RegisterSingleShortcut(string id, ShortcutCombo combo) : void
+        - FormatForX11Keysym(string mainKey) : string
         - EventLoop() : void
+        - HandleX11Error(nint display, ref LibX11.XErrorEvent errorEvent) : int
         - Dispose() : void
         - LibX11
             - XOpenDisplay(string? display_name) : nint
@@ -26,7 +28,11 @@ namespace MoonTTS.Infrastructure.OS.Linux.X11;
             - XUngrabKey(nint display, int keycode, uint modifiers, ulong grab_window) : int
             - XPending(nint display) : int
             - XNextEvent(nint display, ref XEvent event_return) : int
+            - XFlush(nint display) : int
             - XCloseDisplay(nint display) : int
+            - XSetErrorHandler(XErrorHandlerDelegate handler) : nint
+            - XErrorHandlerDelegate
+            - XErrorEvent
             - XKeyEvent
             - XEvent
 */
@@ -35,10 +41,18 @@ namespace MoonTTS.Infrastructure.OS.Linux.X11;
 
 public class X11ShortcutHook : IGlobalShortcutHook
 {
+    /* Mask of modifier bits relevant to shortcut matching (ignores CapsLock, NumLock, mouse buttons, and XKB layout groups) */
+    private const uint SignificantModifiersMask =
+        LibX11.ShiftMask | LibX11.ControlMask | LibX11.Mod1Mask | LibX11.Mod4Mask;
+
+    /* Static reference keeps the error callback alive across the process lifetime for Native AOT */
+    private static readonly LibX11.XErrorHandlerDelegate ErrorHandler = HandleX11Error;
+
+    private readonly Lock _displayLock = new();
     private IntPtr _display;
     private ulong _rootWindow;
     private Thread? _eventThread;
-    private bool _isRunning;
+    private volatile bool _isRunning;
     private DateTime _lastTriggerTime = DateTime.MinValue;
 
     /* Maps the exact (ModifierState, KeyCode) -> Shortcut ID */
@@ -49,13 +63,18 @@ public class X11ShortcutHook : IGlobalShortcutHook
     /* Called once when the app starts */
     public Task InitializeAsync()
     {
-        /* Establishes connection with the X11 server */
-        _display = LibX11.XOpenDisplay(null);
-        if (_display == IntPtr.Zero)
-            throw new InvalidOperationException("Failed to open x11 Display");
-        
-        /* Get the desktop root background window to listen globally */
-        _rootWindow = LibX11.XDefaultRootWindow(_display);
+        lock (_displayLock)
+        {
+            LibX11.XSetErrorHandler(ErrorHandler);
+
+            /* Establishes connection with the X11 server */
+            _display = LibX11.XOpenDisplay(null);
+            if (_display == IntPtr.Zero)
+                throw new InvalidOperationException("Failed to open x11 Display");
+            
+            /* Get the desktop root background window to listen globally */
+            _rootWindow = LibX11.XDefaultRootWindow(_display);
+        }
         
         /* Starts the background thread to listen for X11 events */
         _isRunning = true;
@@ -68,17 +87,22 @@ public class X11ShortcutHook : IGlobalShortcutHook
     /* Called every time the user saves their settings. Cleans the registered keybinds and rebinds them one by one */
     public Task RegisterShortcutAsync(ShortcutCombo? toggleShortcut, Dictionary<string, ShortcutCombo> phraseShortcuts)
     {
-        if (_display == IntPtr.Zero) return Task.CompletedTask;
-        
-        /* Ungrabs all previous keys in case the user changed them in settings */
-        LibX11.XUngrabKey(_display, 0, LibX11.AnyModifier, _rootWindow);
-        _registeredCombos.Clear();
-
-        if (toggleShortcut != null) RegisterSingleShortcut("toggle_app", toggleShortcut);
-
-        foreach (var kvp in phraseShortcuts)
+        lock (_displayLock)
         {
-            RegisterSingleShortcut($"phrase_{kvp.Key}", kvp.Value);
+            if (_display == IntPtr.Zero) return Task.CompletedTask;
+            
+            /* Ungrabs all previous keys in case the user changed them in settings */
+            LibX11.XUngrabKey(_display, LibX11.AnyKey, LibX11.AnyModifier, _rootWindow);
+            _registeredCombos.Clear();
+
+            if (toggleShortcut != null) RegisterSingleShortcut("toggle_app", toggleShortcut);
+
+            foreach (var kvp in phraseShortcuts)
+            {
+                RegisterSingleShortcut($"phrase_{kvp.Key}", kvp.Value);
+            }
+
+            LibX11.XFlush(_display);
         }
         
         return Task.CompletedTask;
@@ -95,15 +119,15 @@ public class X11ShortcutHook : IGlobalShortcutHook
         if (combo.HasShift) modifiers |= LibX11.ShiftMask;
         if (combo.HasWin) modifiers |= LibX11.Mod4Mask;
         
-        /* Asks X11 to convert the string into a harware KeyCode */
-        /* As stated in ShortcutCombo, X11 demands lowercase */
-        IntPtr keysym = LibX11.XStringToKeysym(combo.MainKey.ToLowerInvariant());
+        /* Asks X11 to convert the case-sensitive keysym string into a hardware KeyCode */
+        string keysymName = FormatForX11Keysym(combo.MainKey);
+        IntPtr keysym = LibX11.XStringToKeysym(keysymName);
         if (keysym == IntPtr.Zero) return;
         
         uint keycode = LibX11.XKeysymToKeycode(_display, keysym);
         if (keycode == 0) return;
         
-        /* Safety net in case user has NumLock disabled */
+        /* Safety net in case user has CapsLock or NumLock enabled */
         uint[] ignoredModifiers =
         {
             0,
@@ -125,45 +149,94 @@ public class X11ShortcutHook : IGlobalShortcutHook
                 true,
                 LibX11.GrabModeAsync,
                 LibX11.GrabModeAsync);
-
-            _registeredCombos[(finalModifiers, keycode)] = id;
         }
+
+        _registeredCombos[(modifiers, keycode)] = id;
+    }
+
+    /* Converts a normalized ShortcutCombo MainKey into X11's case-sensitive keysym name */
+    private static string FormatForX11Keysym(string mainKey)
+    {
+        string rawKey = mainKey.Trim();
+        return rawKey.ToUpperInvariant() switch
+        {
+            "ENTER" or "RETURN" => "Return",
+            "ESC" or "ESCAPE" => "Escape",
+            "SPACE" => "space",
+            "TAB" => "Tab",
+            "BACKSPACE" => "BackSpace",
+            "DELETE" or "DEL" => "Delete",
+            "INSERT" or "INS" => "Insert",
+            "HOME" => "Home",
+            "END" => "End",
+            "PAGEUP" or "PAGE_UP" or "PGUP" => "Page_Up",
+            "PAGEDOWN" or "PAGE_DOWN" or "PGDN" => "Page_Down",
+            "UP" or "ARROWUP" => "Up",
+            "DOWN" or "ARROWDOWN" => "Down",
+            "LEFT" or "ARROWLEFT" => "Left",
+            "RIGHT" or "ARROWRIGHT" => "Right",
+            "PLUS" or "ADD" => "plus",
+            "MINUS" or "SUBTRACT" => "minus",
+            /* Function keys F1-F24 require uppercase 'F' in X11 */
+            var k when k.Length > 1 && k[0] == 'F' && int.TryParse(k[1..], out _) => k,
+            /* Single alphanumeric characters are lowercase in X11 */
+            var k when k.Length == 1 => k.ToLowerInvariant(),
+            _ => rawKey,
+        };
     }
 
     /* Wakes up every 50 milliseconds to check if the X11 server tried to notify the app */
     private void EventLoop()
     {
-        LibX11.XEvent xevent = new  LibX11.XEvent();
+        LibX11.XEvent xevent = new LibX11.XEvent();
 
         while (_isRunning)
         {
-            /* XPending checks if there are events waiting, if not, sleeps to avoid cpu overload */
-            while (LibX11.XPending(_display) > 0)
+            string? triggeredId = null;
+
+            lock (_displayLock)
             {
-                LibX11.XNextEvent(_display, ref xevent);
-
-                if (xevent.type == LibX11.KeyPress)
+                /* XPending checks if there are events waiting, if not, sleeps to avoid cpu overload */
+                while (_display != IntPtr.Zero && LibX11.XPending(_display) > 0)
                 {
-                    uint keycode = xevent.xkey.keycode;
-                    uint state = xevent.xkey.state;
+                    LibX11.XNextEvent(_display, ref xevent);
 
-                    /* If X11 returns one of our registered combos, invokes the associated action */
-                    if (_registeredCombos.TryGetValue((state, keycode), out string? shortcutId))
+                    if (xevent.type == LibX11.KeyPress)
                     {
-                        /* Ignore auto-repeat spam if it fired less than 500ms ago */
-                        /* Is it necessary? I'm not sure, but windows has a built-in feature to avoid this,
-                           so it doesn't hurt to prevent */
-                        if ((DateTime.UtcNow - _lastTriggerTime).TotalMilliseconds > 500)
+                        uint keycode = xevent.xkey.keycode;
+                        uint state = xevent.xkey.state & SignificantModifiersMask;
+
+                        /* If X11 returns one of our registered combos, invokes the associated action */
+                        if (_registeredCombos.TryGetValue((state, keycode), out string? shortcutId))
                         {
-                            _lastTriggerTime = DateTime.UtcNow;
-                            OnShortcutTriggered?.Invoke(shortcutId);
+                            /* Ignore auto-repeat spam if it fired less than 500ms ago */
+                            /* Is it necessary? I'm not sure, but windows has a built-in feature to avoid this,
+                               so it doesn't hurt to prevent */
+                            if ((DateTime.UtcNow - _lastTriggerTime).TotalMilliseconds > 500)
+                            {
+                                _lastTriggerTime = DateTime.UtcNow;
+                                triggeredId = shortcutId;
+                            }
                         }
-                    } 
+                    }
                 }
             }
+
+            if (triggeredId != null)
+            {
+                OnShortcutTriggered?.Invoke(triggeredId);
+            }
+
             /* 50 millisecond pause */
             Thread.Sleep(50);
         }
+    }
+
+    /* Logs non-fatal X11 errors (such as BadAccess when another client already grabbed a key) instead of aborting */
+    private static int HandleX11Error(IntPtr display, ref LibX11.XErrorEvent errorEvent)
+    {
+        Console.Error.WriteLine($"[X11ShortcutHook] X11 error code={errorEvent.error_code}, request={errorEvent.request_code}");
+        return 0;
     }
 
     /* Disposes the process */
@@ -171,11 +244,14 @@ public class X11ShortcutHook : IGlobalShortcutHook
     {
         _isRunning = false;
 
-        if (_display != IntPtr.Zero)
+        lock (_displayLock)
         {
-            LibX11.XUngrabKey(_display, 0, LibX11.AnyModifier, _rootWindow);
-            LibX11.XCloseDisplay(_display);
-            _display = IntPtr.Zero;
+            if (_display != IntPtr.Zero)
+            {
+                LibX11.XUngrabKey(_display, LibX11.AnyKey, LibX11.AnyModifier, _rootWindow);
+                LibX11.XCloseDisplay(_display);
+                _display = IntPtr.Zero;
+            }
         }
     }
 
@@ -188,6 +264,7 @@ public class X11ShortcutHook : IGlobalShortcutHook
 
         public const int KeyPress = 2;
         public const int GrabModeAsync = 1;
+        public const int AnyKey = 0;
         public const uint AnyModifier = 0x8000;
         public const uint ShiftMask = 1 << 0;
         public const uint LockMask = 1 << 1;
@@ -195,6 +272,9 @@ public class X11ShortcutHook : IGlobalShortcutHook
         public const uint Mod1Mask = 1 << 3; /* Alt */
         public const uint Mod2Mask = 1 << 4; /* NumLock */
         public const uint Mod4Mask = 1 << 6; /* Super/Windows/Command */
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate int XErrorHandlerDelegate(IntPtr display, ref XErrorEvent error_event);
 
         [DllImport(LibName)]
         public static extern IntPtr XOpenDisplay(string? display_name);
@@ -230,9 +310,27 @@ public class X11ShortcutHook : IGlobalShortcutHook
         
         [DllImport(LibName)]
         public static extern int XNextEvent(IntPtr display, ref XEvent event_return);
+
+        [DllImport(LibName)]
+        public static extern int XFlush(IntPtr display);
         
         [DllImport(LibName)]
         public static extern int XCloseDisplay(IntPtr display);
+
+        [DllImport(LibName)]
+        public static extern IntPtr XSetErrorHandler(XErrorHandlerDelegate handler);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct XErrorEvent
+        {
+            public int type;
+            public IntPtr display;
+            public ulong resourceid;
+            public ulong serial;
+            public byte error_code;
+            public byte request_code;
+            public byte minor_code;
+        }
         
         /* Memory mapping of the C struct "XKeyEvent" from "/usr/include/X11/Xlib.h" */
 

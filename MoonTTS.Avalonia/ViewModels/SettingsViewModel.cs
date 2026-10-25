@@ -22,6 +22,7 @@ namespace MoonTTS.Avalonia.ViewModels;
         - SelectVoiceFromConfig() : void
         - LoadSettings() : void
         - LoadModelStatuses() : void
+        - ShowModelStatusAsync(string message) : void
         - SwitchModelAsync(ModelMetadata model) : Task
         - RevertModelSelectionAsync() : Task
         - AutoSave() : void
@@ -262,10 +263,11 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
-    /* Populates every model offered by the installed engines */
+    /* Populates every model offered by the installed engines, preceded by the "Unselected" entry */
     private void LoadTtsEngines()
     {
         AvailableModels.Clear();
+        AvailableModels.Add(ModelMetadata.Unselected);
         if (_downloadManager == null)
             return;
 
@@ -298,7 +300,7 @@ public partial class SettingsViewModel : ViewModelBase
     /* Selects the voice saved for the selected model, falling back to the model's first voice */
     private void SelectVoiceFromConfig()
     {
-        if (_settingsManager == null || SelectedModel == null)
+        if (_settingsManager == null || SelectedModel == null || SelectedModel.IsUnselected)
         {
             SelectedVoice = AvailableVoices.FirstOrDefault();
             return;
@@ -339,8 +341,8 @@ public partial class SettingsViewModel : ViewModelBase
         try
         {
             var appConfig = _settingsManager.CurrentAppConfig;
-            SelectedModel = AvailableModels.FirstOrDefault(m => m.Id == appConfig.ActiveModel);
-            var engineConfig = SelectedModel != null
+            SelectedModel = AvailableModels.FirstOrDefault(m => m.Id == appConfig.ActiveModel) ?? ModelMetadata.Unselected;
+            var engineConfig = !SelectedModel.IsUnselected
                 ? _settingsManager.GetEngineConfig(SelectedModel.Id)
                 : new EngineConfig();
             SelectVoiceFromConfig();
@@ -403,11 +405,12 @@ public partial class SettingsViewModel : ViewModelBase
         if (_isLoading || value == null)
             return;
 
-        /* Every installed engine's models are listed, but only downloaded ones can be activated */
-        if (_downloadManager != null && !_downloadManager.IsModelDownloaded(value.Id))
+        /* Every installed engine's models are listed, but only downloaded ones can be activated.
+           Unselected has no files and is always allowed */
+        if (!value.IsUnselected && _downloadManager != null && !_downloadManager.IsModelDownloaded(value.Id))
         {
-            ModelStatusMessage = ModelNotInstalledMessage;
             _ = RevertModelSelectionAsync();
+            ShowModelStatusAsync(ModelNotInstalledMessage);
             return;
         }
 
@@ -422,6 +425,23 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
+    /* Shows a transient message in the model status popup and clears it after a few seconds,
+       unless a newer message replaced it in the meantime */
+    private async void ShowModelStatusAsync(string message)
+    {
+        try
+        {
+            ModelStatusMessage = message;
+            await Task.Delay(5000);
+            if (ModelStatusMessage == message)
+                ModelStatusMessage = null;
+        }
+        catch
+        {
+            /* Ignored */
+        }
+    }
+
     /* Loads the selected model in its engine worker and refreshes voices and speed for it */
     private async Task SwitchModelAsync(ModelMetadata model)
     {
@@ -432,7 +452,7 @@ public partial class SettingsViewModel : ViewModelBase
         if (switchResult.IsSuccess)
         {
             await RefreshVoicesAsync();
-            if (_settingsManager != null)
+            if (_settingsManager != null && !model.IsUnselected)
             {
                 _isLoading = true;
                 try
@@ -451,7 +471,7 @@ public partial class SettingsViewModel : ViewModelBase
         {
             /* Model switch failed (e.g. the engine worker could not start) - revert dropdown without saving */
             await Console.Error.WriteLineAsync($"Model switch failed: {switchResult.ErrorMessage}");
-            ModelStatusMessage = switchResult.ErrorMessage;
+            ShowModelStatusAsync(switchResult.ErrorMessage ?? "Model switch failed.");
             await RevertModelSelectionAsync();
         }
     }
@@ -466,7 +486,7 @@ public partial class SettingsViewModel : ViewModelBase
         _isLoading = true;
         try
         {
-            SelectedModel = AvailableModels.FirstOrDefault(m => m.Id == activeModel);
+            SelectedModel = AvailableModels.FirstOrDefault(m => m.Id == activeModel) ?? ModelMetadata.Unselected;
         }
         finally
         {
@@ -572,8 +592,8 @@ public partial class SettingsViewModel : ViewModelBase
 
         _settingsManager.SaveAppConfig(appConfig);
 
-        /* Voice and speed are remembered per model */
-        if (SelectedModel != null)
+        /* Voice and speed are remembered per model; Unselected has no engine settings */
+        if (SelectedModel != null && !SelectedModel.IsUnselected)
         {
             var engineConfig = _settingsManager.GetEngineConfig(SelectedModel.Id);
             engineConfig.VoiceId = SelectedVoice?.Id ?? engineConfig.VoiceId;
@@ -723,6 +743,10 @@ public partial class SettingsViewModel : ViewModelBase
             HotkeyEntries.Clear();
             foreach (var hk in _hotkeyManager.GetHotkeys())
                 HotkeyEntries.Add(hk);
+        }
+        else
+        {
+            ShowModelStatusAsync(res.ErrorMessage ?? "Failed to assign phrase shortcut.");
         }
     }
 

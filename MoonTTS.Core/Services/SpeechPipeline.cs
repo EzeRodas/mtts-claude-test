@@ -28,6 +28,12 @@ namespace MoonTTS.Core.Services;
 /* Unified pipeline for all speech actions */
 public class SpeechPipeline : ISpeechPipeline
 {
+    /* Returned by SpeakAsync when no model is selected in settings */
+    public const string NoModelSelectedMessage = "Please select a model before synthesizing.";
+
+    /* Returned by SpeakAsync when the session is cancelled through Stop or the caller's token */
+    public const string CancelledMessage = "Speech synthesis was cancelled.";
+
     private readonly ITtsEngineProvider _engineProvider;
     private readonly DictionaryManager _dictionaryManager;
     private readonly HistoryManager _historyManager;
@@ -67,6 +73,10 @@ public class SpeechPipeline : ISpeechPipeline
     {
         if (string.IsNullOrWhiteSpace(rawText))
             return Result<SpeechResult>.Failure("Text to speech cannot be empty.");
+
+        /* Synthesis requires an explicitly selected model; checked before any engine worker is started */
+        if (_settingsManager.CurrentAppConfig.ActiveModel.IsUnselected)
+            return Result<SpeechResult>.Failure(NoModelSelectedMessage);
 
         var engine = await _engineProvider.GetEngineAsync(cancellationToken);
         if (!engine.IsAvailable)
@@ -176,6 +186,9 @@ public class SpeechPipeline : ISpeechPipeline
 
             if (!string.IsNullOrWhiteSpace(options.ExportPath) && masterWav.Length > WavWriter.HeaderSize)
             {
+                string? exportDir = Path.GetDirectoryName(options.ExportPath);
+                if (!string.IsNullOrEmpty(exportDir))
+                    Directory.CreateDirectory(exportDir);
                 await File.WriteAllBytesAsync(options.ExportPath, masterWav, sessionToken);
             }
 
@@ -189,7 +202,7 @@ public class SpeechPipeline : ISpeechPipeline
         catch (OperationCanceledException)
         {
             _audioPlayer.Stop();
-            return Result<SpeechResult>.Failure("Speech synthesis was cancelled.");
+            return Result<SpeechResult>.Failure(CancelledMessage);
         }
         catch (Exception ex)
         {

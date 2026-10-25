@@ -56,14 +56,14 @@
     <Panel Margin="6">
 
         <!-- =============================================================== -->
-        <!-- VIEW 1: QUICK SETTINGS CARD (Visible when !IsAdvancedView)       -->
+        <!-- VIEW 1: QUICK SETTINGS CARD (Visible when !IsAdvancedView)      -->
         <!-- =============================================================== -->
         <Border Classes="main-card" Padding="16" IsVisible="{Binding !IsAdvancedView}">
             <Border.BoxShadow>
                 <BoxShadows>0 10 25 0 #25000000</BoxShadows>
             </Border.BoxShadow>
 
-            <StackPanel Spacing="14">
+            <StackPanel Spacing="14" Name="QuickSettings">
                 <!-- Header -->
                 <Grid ColumnDefinitions="*,Auto,Auto">
                     <TextBlock Text="Quick settings" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
@@ -83,7 +83,7 @@
                 <Separator Background="{StaticResource HoverBrush}" Height="1"/>
 
                 <!-- Model & Voice Selection -->
-                <Border Classes="card-section">
+                <Border Classes="card-section" Name="ModelSel">
                     <StackPanel Spacing="10">
                         <Grid ColumnDefinitions="70,*">
                             <TextBlock Text="Model" Classes="field-label" VerticalAlignment="Center"/>
@@ -95,8 +95,7 @@
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
                         </Grid>
-                        <TextBlock Text="{Binding ModelStatusMessage}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap"
-                                   IsVisible="{Binding ModelStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        
                         <Grid ColumnDefinitions="70,*">
                             <TextBlock Text="Voice" Classes="field-label" VerticalAlignment="Center"/>
                             <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableVoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
@@ -165,6 +164,22 @@
                 </Border>
             </StackPanel>
         </Border>
+        <Popup Name="ErrorPopup" IsOpen="{Binding ModelStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+               PlacementTarget="{Binding ElementName=ModelSel}"
+               Placement="Bottom"
+               HorizontalAlignment="Center"
+               IsLightDismissEnabled="True">
+            <Border Width="250"
+                    Background="{StaticResource ColorDanger}"
+                    CornerRadius="8"
+                    Padding="16">
+                <TextBlock Text="{Binding ModelStatusMessage}" 
+                           Foreground="White" 
+                           TextWrapping="Wrap"
+                           FontWeight="Medium"
+                           TextAlignment="Center"/>
+            </Border>
+        </Popup>
 
         <!-- =============================================================== -->
         <!-- VIEW 2: 2-COLUMN ADVANCED DASHBOARD (Visible when IsAdvancedView)-->
@@ -365,6 +380,8 @@
                                             <TextBox Grid.Column="1" Text="{Binding NewHotkeyPhrase}" PlaceholderText="Phrase to synthesize" Margin="0,0,6,0"/>
                                             <Button Grid.Column="2" Content="Add" Command="{Binding AddHotkeyPhraseCommand}" Classes="btn-primary" Cursor="Hand"/>
                                         </Grid>
+                                        <TextBlock Text="{Binding ModelStatusMessage}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap"
+                                                   IsVisible="{Binding ModelStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                     </StackPanel>
                                 </Border>
                                 <ListBox ItemsSource="{Binding HotkeyEntries}" Height="180" Classes="data-list">

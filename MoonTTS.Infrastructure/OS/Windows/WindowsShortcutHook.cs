@@ -5,6 +5,16 @@ using MoonTTS.Domain.ValueObjects;
 
 namespace MoonTTS.Infrastructure.OS.Windows;
 
+/* File Structure:
+        - InitializeAsync() : Task
+        - RegisterShortcutAsync(ShortcutCombo? toggleShortcut, Dictionary<string, ShortcutCombo> phraseShortcuts) : Task
+        - RegisterSingleShortcut(string id, ShortcutCombo combo) : void
+        - TryGetVirtualKey(string mainKey, out uint vk) : bool
+        - EventLoop() : void
+        - Dispose() : void
+        - LibWin32
+*/
+
 public class WindowsShortcutHook : IGlobalShortcutHook
 {
     private Thread? _eventThread;
@@ -20,6 +30,7 @@ public class WindowsShortcutHook : IGlobalShortcutHook
 
     public event Action<string>? OnShortcutTriggered;
 
+    /* Starts the dedicated Win32 message-loop thread for global hotkeys */
     public Task InitializeAsync()
     {
         _eventThread = new Thread(EventLoop) {IsBackground = true};
@@ -31,6 +42,7 @@ public class WindowsShortcutHook : IGlobalShortcutHook
         return Task.CompletedTask;
     }
 
+    /* Enqueues hotkey registration updates onto the Win32 message-loop thread */
     public Task RegisterShortcutAsync(ShortcutCombo? toggleShortcut, Dictionary<string, ShortcutCombo> phraseShortcuts)
     {
         /* Queues the task for the background thread */
@@ -60,6 +72,7 @@ public class WindowsShortcutHook : IGlobalShortcutHook
         return Task.CompletedTask;
     }
 
+    /* Translates a ShortcutCombo into Win32 modifier flags and virtual-key code and registers it */
     private void RegisterSingleShortcut(string id, ShortcutCombo combo)
     {
         /* Prevents hotkey spamming */
@@ -70,16 +83,8 @@ public class WindowsShortcutHook : IGlobalShortcutHook
         if (combo.HasShift) modifiers |= LibWin32.MOD_SHIFT;
         if (combo.HasWin) modifiers |= LibWin32.MOD_WIN;
 
-        uint vk = 0;
-        if (combo.MainKey.Length == 1)
-        {
-            /* Win32 requires the uppercase letter for virtual keys */
-            vk = (uint)combo.MainKey[0];
-        }
-        else
-        {
+        if (!TryGetVirtualKey(combo.MainKey, out uint vk))
             return;
-        }
         
         int hotkeyId = _nextHotkeyId++;
 
@@ -87,7 +92,57 @@ public class WindowsShortcutHook : IGlobalShortcutHook
         {
             _registeredCombos[hotkeyId] = id;
         }
+    }
 
+    /* Maps normalized ShortcutCombo key names to Win32 virtual-key codes */
+    private static bool TryGetVirtualKey(string mainKey, out uint vk)
+    {
+        vk = 0;
+        string key = mainKey.Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(key))
+            return false;
+
+        /* Single ASCII letter (A-Z) or digit (0-9) maps directly to its ASCII code */
+        if (key.Length == 1)
+        {
+            char c = key[0];
+            if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            {
+                vk = c;
+                return true;
+            }
+        }
+
+        /* Function keys F1-F24 (VK_F1 = 0x70 .. VK_F24 = 0x87) */
+        if (key.Length > 1 && key[0] == 'F' && int.TryParse(key[1..], out int fn) && fn is >= 1 and <= 24)
+        {
+            vk = (uint)(0x70 + (fn - 1));
+            return true;
+        }
+
+        vk = key switch
+        {
+            "BACKSPACE" => 0x08,
+            "TAB" => 0x09,
+            "RETURN" or "ENTER" => 0x0D,
+            "ESC" or "ESCAPE" => 0x1B,
+            "SPACE" => 0x20,
+            "PAGEUP" or "PAGE_UP" or "PGUP" => 0x21,
+            "PAGEDOWN" or "PAGE_DOWN" or "PGDN" => 0x22,
+            "END" => 0x23,
+            "HOME" => 0x24,
+            "LEFT" or "ARROWLEFT" => 0x25,
+            "UP" or "ARROWUP" => 0x26,
+            "RIGHT" or "ARROWRIGHT" => 0x27,
+            "DOWN" or "ARROWDOWN" => 0x28,
+            "INSERT" or "INS" => 0x2D,
+            "DELETE" or "DEL" => 0x2E,
+            "PLUS" or "ADD" => 0xBB,
+            "MINUS" or "SUBTRACT" => 0xBD,
+            _ => 0,
+        };
+
+        return vk != 0;
     }
 
     /* Listener waiting for activating or registering hotkeys */
@@ -123,6 +178,7 @@ public class WindowsShortcutHook : IGlobalShortcutHook
         }
     }
 
+    /* Stops the Win32 message loop thread */
     public void Dispose()
     {
         LibWin32.PostThreadMessage(_threadId, LibWin32.WM_QUIT, IntPtr.Zero, IntPtr.Zero);

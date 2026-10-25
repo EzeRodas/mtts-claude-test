@@ -208,6 +208,30 @@
                     />
                 </Button>
             </StackPanel>
+
+            <!-- Synthesis error popup (e.g. no model selected), shown above the input box -->
+            <Popup
+                IsOpen="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                PlacementTarget="{Binding ElementName=InputBox}"
+                Placement="Top"
+                VerticalOffset="-8"
+                IsLightDismissEnabled="False"
+                >
+                <Border
+                    MaxWidth="420"
+                    Background="#EF4444"
+                    CornerRadius="8"
+                    Padding="16,10"
+                    >
+                    <TextBlock
+                        Text="{Binding StatusMessage}"
+                        Foreground="White"
+                        TextWrapping="Wrap"
+                        FontWeight="Medium"
+                        TextAlignment="Center"
+                    />
+                </Border>
+            </Popup>
         </Grid>
         
         

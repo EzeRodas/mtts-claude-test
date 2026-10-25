@@ -93,8 +93,11 @@ public class HotkeyManager
         if (isNew && _repo.Hotkeys.Count >= AppConstants.MaxHotkeyEntries)
             return Result.Failure($"Maximum limit of {AppConstants.MaxHotkeyEntries} entries reached.");
 
-        /* Retrieves the path */
+        /* Retrieves the path and ensures the profile folder exists before synthesis exports the WAV */
         string wavPath = GetWavPath(entryId);
+        string? wavDir = Path.GetDirectoryName(wavPath);
+        if (!string.IsNullOrEmpty(wavDir))
+            Directory.CreateDirectory(wavDir);
 
         // Synthesizes and exports directly through the speech pipeline with playback disabled
         var synthResult = await _speechPipeline.SpeakAsync(text, new SpeechOptions

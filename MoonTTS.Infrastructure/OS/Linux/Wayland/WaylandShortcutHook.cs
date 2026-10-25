@@ -7,8 +7,10 @@ namespace MoonTTS.Infrastructure.OS.Linux.Wayland;
 /* File Structure:
         - InitializeAsync() : Task
         - RegisterShortcutAsync(ShortcutCombo? toggleShortcut, Dictionary<string,ShortcutCombo> phraseShortcuts) : Task
+        - BuildPortalShortcutId(string logicalId, string trigger) : string
+        - ExtractLogicalShortcutId(string portalShortcutId) : string
+        - SendRequestAsync(Func<string, Task<string>> portalAction, int timeoutMs) : Task<Dictionary<string, VariantValue>>
         - FormatForWayland(ShortcutCombo combo) : string
-        - WaitForResponseAsync(ObjectPath requestPath) : Task<IDictionary<string,object>>
         - CleanupSessionAsync() : Task
         - Dispose() : void
 */
@@ -25,7 +27,9 @@ namespace MoonTTS.Infrastructure.OS.Linux.Wayland;
 public class WaylandShortcutHook : IGlobalShortcutHook
 {
     private const string AppId = "com.moontts.app";
+    private const string TriggerSeparator = "__";
     
+    private readonly SemaphoreSlim _sessionLock = new(1, 1);
     private DBusConnection? _connection;
     private IDisposable? _activationWatcher;
     private string? _sessionHandle;
@@ -74,8 +78,9 @@ public class WaylandShortcutHook : IGlobalShortcutHook
             {
                 if (notification.Type == NotificationType.Value && !string.IsNullOrEmpty(notification.Value))
                 {
-                    Console.WriteLine($"[WaylandShortcutHook] Shortcut Activated: {notification.Value}");
-                    OnShortcutTriggered?.Invoke(notification.Value);
+                    string logicalId = ExtractLogicalShortcutId(notification.Value);
+                    Console.WriteLine($"[WaylandShortcutHook] Shortcut Activated: {notification.Value} -> {logicalId}");
+                    OnShortcutTriggered?.Invoke(logicalId);
                 }
                 else if (notification.Exception != null)
                 {
@@ -112,53 +117,63 @@ public class WaylandShortcutHook : IGlobalShortcutHook
         if (_connection == null)
             throw new InvalidOperationException("Wayland hook not initialized.");
 
-        await CleanupSessionAsync();
-
-        string sessionToken = $"moontts_sess_{Guid.NewGuid():N}";
-        
-        /* Creates session */
-        Console.WriteLine("[WaylandShortcutHook] Calling CreateSession...");
-        var createResult = await SendRequestAsync(
-            reqToken => _connection.CallMethodAsync(
-                CreateSessionMessage(_connection, sessionToken, reqToken),
-                (Message msg, object? _) => msg.GetBodyReader().ReadObjectPath().ToString()));
-
-        if (!createResult.TryGetValue("session_handle", out var sessionHandleVariant))
-            throw new InvalidOperationException("Portal CreateSession did not return a session_handle.");
-
-        _sessionHandle = sessionHandleVariant.Type == VariantValueType.ObjectPath
-            ? sessionHandleVariant.GetObjectPath().ToString()
-            : sessionHandleVariant.GetString();
-        
-        Console.WriteLine($"[WaylandShortcutHook] Session created: {_sessionHandle}");
-        
-        /* Builds shortcut bindings */
-        var shortcutsToBind = new List<(string Id, string Description, string Trigger)>();
-
-        if (toggleShortcut != null)
+        await _sessionLock.WaitAsync();
+        try
         {
-            shortcutsToBind.Add(
-                ("toggle_app", "Show/Hide Moon-TTS", FormatForWayland(toggleShortcut)));
-        }
+            await CleanupSessionAsync();
 
-        foreach (var phrase in phraseShortcuts)
+            string sessionToken = $"moontts_sess_{Guid.NewGuid():N}";
+            
+            /* Creates session */
+            Console.WriteLine("[WaylandShortcutHook] Calling CreateSession...");
+            var createResult = await SendRequestAsync(
+                reqToken => _connection.CallMethodAsync(
+                    CreateSessionMessage(_connection, sessionToken, reqToken),
+                    (Message msg, object? _) => msg.GetBodyReader().ReadObjectPath().ToString()));
+
+            if (!createResult.TryGetValue("session_handle", out var sessionHandleVariant))
+                throw new InvalidOperationException("Portal CreateSession did not return a session_handle.");
+
+            _sessionHandle = sessionHandleVariant.Type == VariantValueType.ObjectPath
+                ? sessionHandleVariant.GetObjectPath().ToString()
+                : sessionHandleVariant.GetString();
+            
+            Console.WriteLine($"[WaylandShortcutHook] Session created: {_sessionHandle}");
+            
+            /* Builds shortcut bindings using trigger-scoped IDs so updated triggers are applied by the portal */
+            var shortcutsToBind = new List<(string Id, string Description, string Trigger)>();
+
+            if (toggleShortcut != null)
+            {
+                string trigger = FormatForWayland(toggleShortcut);
+                shortcutsToBind.Add(
+                    (BuildPortalShortcutId("toggle_app", trigger), "Show/Hide Moon-TTS", trigger));
+            }
+
+            foreach (var phrase in phraseShortcuts)
+            {
+                string trigger = FormatForWayland(phrase.Value);
+                shortcutsToBind.Add(
+                    (BuildPortalShortcutId($"phrase_{phrase.Key}", trigger), $"Moon-TTS Phrase: {phrase.Key}", trigger));
+            }
+
+            if (shortcutsToBind.Count == 0) return;
+            
+            Console.WriteLine($"[WaylandShortcutHook] Calling BindShortcuts with {shortcutsToBind.Count} shortcut(s): " +
+                              string.Join(", ", shortcutsToBind.Select(s => $"{s.Id}={s.Trigger}")));
+
+            await SendRequestAsync(
+                reqToken => _connection.CallMethodAsync(
+                    CreateBindShortcutsMessage(_connection, _sessionHandle, shortcutsToBind, reqToken),
+                    (Message msg, object? _) => msg.GetBodyReader().ReadObjectPath().ToString()),
+                timeoutMs: 60000);
+
+            Console.WriteLine("[WaylandShortcutHook] BindShortcuts succeeded");
+        }
+        finally
         {
-            shortcutsToBind.Add(
-                ($"phrase_{phrase.Key}", $"Moon-TTS Phrase: {phrase.Key}", FormatForWayland(phrase.Value)));
+            _sessionLock.Release();
         }
-
-        if (shortcutsToBind.Count == 0) return;
-        
-        Console.WriteLine($"[WaylandShortcutHook] Calling BindShortcuts with {shortcutsToBind.Count} shortcut(s): " +
-                          string.Join(", ", shortcutsToBind.Select(s => $"{s.Id}={s.Trigger}")));
-
-        await SendRequestAsync(
-            reqToken => _connection.CallMethodAsync(
-                CreateBindShortcutsMessage(_connection, _sessionHandle, shortcutsToBind, reqToken),
-                (Message msg, object? _) => msg.GetBodyReader().ReadObjectPath().ToString()),
-            timeoutMs: 60000);
-
-        Console.WriteLine("[WaylandShortcutHook] BindShortcuts succeeded");
         
         static MessageBuffer CreateSessionMessage(DBusConnection conn, string sessToken, string reqToken)
         {
@@ -230,6 +245,20 @@ public class WaylandShortcutHook : IGlobalShortcutHook
 
             return writer.CreateMessage();
         }
+    }
+
+    /* Appends a sanitized trigger token to the shortcut ID so portal backends honor changed triggers */
+    private static string BuildPortalShortcutId(string logicalId, string trigger)
+    {
+        string sanitizedTrigger = trigger.Replace('+', '_');
+        return $"{logicalId}{TriggerSeparator}{sanitizedTrigger}";
+    }
+
+    /* Strips the trigger suffix from a portal shortcut ID before notifying listeners */
+    private static string ExtractLogicalShortcutId(string portalShortcutId)
+    {
+        int sepIndex = portalShortcutId.IndexOf(TriggerSeparator, StringComparison.Ordinal);
+        return sepIndex >= 0 ? portalShortcutId[..sepIndex] : portalShortcutId;
     }
     
     /* Subscribes to Request.Response, executes the action, and waits for the response */
@@ -336,7 +365,8 @@ public class WaylandShortcutHook : IGlobalShortcutHook
         
         try
         {
-            await _connection.CallMethodAsync(CreateCloseSessionMessage(_connection, _sessionHandle));
+            await _connection.CallMethodAsync(CreateCloseSessionMessage(_connection, _sessionHandle))
+                .ConfigureAwait(false);
         }
         catch
         {
@@ -361,13 +391,19 @@ public class WaylandShortcutHook : IGlobalShortcutHook
         }
     }
 
-    /* Disposes the lsitener */
+    /* Disposes the listener and closes any active portal session before disconnecting */
     public void Dispose()
     {
         _activationWatcher?.Dispose();
-        _ = CleanupSessionAsync();
-        _connection.Dispose();
+        try
+        {
+            CleanupSessionAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+            /* Ignore errors during shutdown */
+        }
+        _connection?.Dispose();
+        _sessionLock.Dispose();
     }
 }
-
-
