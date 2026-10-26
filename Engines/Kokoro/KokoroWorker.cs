@@ -185,7 +185,7 @@ public sealed class KokoroWorker : IDisposable
                 var voice = KokoroVoiceManager.GetVoice(request.VoiceId);
                 var pipelineConfig = new KokoroTTSPipelineConfig { Speed = request.Speed > 0 ? request.Speed : 1.0f };
 
-                byte[] rawPcmBytes = await _synthesizer.SynthesizeAsync(request.Text, voice, pipelineConfig, cancellationToken);
+                byte[] rawPcmBytes = await _synthesizer.SynthesizeAsync(request.Text, voice, pipelineConfig).WaitAsync(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 ApplyDeClickingInPlace(rawPcmBytes, SampleRate);

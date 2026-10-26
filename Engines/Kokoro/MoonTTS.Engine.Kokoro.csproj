@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="KokoroSharp" Version="1.0.1-custom" />
+    <PackageReference Include="KokoroSharp" Version="0.8.4" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.22.0" />
   </ItemGroup>
 
