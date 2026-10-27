@@ -62,13 +62,26 @@ public partial class ModelStatusItem : ObservableObject
     private string _name = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanDownload))]
+    [NotifyPropertyChangedFor(nameof(CanDelete))]
     private bool _isDownloaded;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanDownload))]
+    [NotifyPropertyChangedFor(nameof(CanDelete))]
+    private bool _hasDownloadableFiles;
 
     [ObservableProperty]
     private bool _isDownloading;
 
     [ObservableProperty]
     private double _progress;
+
+    /* True when the manifest declares downloadable files that are not yet downloaded */
+    public bool CanDownload => HasDownloadableFiles && !IsDownloaded;
+
+    /* True when the manifest declares downloadable files that are currently downloaded */
+    public bool CanDelete => HasDownloadableFiles && IsDownloaded;
 }
 
 public partial class SettingsViewModel : ViewModelBase
@@ -325,6 +338,7 @@ public partial class SettingsViewModel : ViewModelBase
                     Model = model.Id,
                     Name = model.DisplayName,
                     IsDownloaded = _downloadManager.IsModelDownloaded(model.Id),
+                    HasDownloadableFiles = model.DownloadFiles.Count > 0,
                     Progress = 0,
                 }
             );

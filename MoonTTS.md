@@ -3,7 +3,7 @@
 > **Repository**: **Moon-TTS-CS**  
 > **Target Framework**: .NET 10.0 (100% Native AOT Compiled)  
 > **UI Framework**: Avalonia UI 11.2 (Fluent / Cross-Platform Desktop / Software Rendering / Single-Instance)  
-> **Speech Engines**: Out-of-process workers discovered at runtime over a binary IPC protocol (any language; a Kokoro ONNX worker ships in `Engines/Kokoro`)  
+> **Speech Engines**: Out-of-process workers discovered at runtime over a binary IPC protocol (any language; Kokoro ONNX and MBROLA diphone workers ship in `Engines/Kokoro` and `Engines/Mbrola`)  
 > **Audio Architecture**: Zero-Copy PCM Streaming, Dual-Device Output, Virtual Loopback Microphone, SIMD DSP  
 
 ---
@@ -282,6 +282,13 @@ Standalone executables that are never linked into the host. Each is published in
 * **Engines/Kokoro/Program.cs**: Worker entrypoint; redirects console output to stderr and runs the frame loop until `Shutdown` or end of stdin.
 * **Engines/Kokoro/KokoroWorker.cs**: Protocol handler: metadata (24 kHz mono 16-bit), model loading, background synthesis with cancellation, and in-place de-clicking of each rendered sentence.
 * **Engines/Kokoro/KokoroVoices.cs**: Kokoro voice presets with names and languages derived from their id prefix, returned by `ListVoices`.
+* **Engines/Mbrola/MoonTTS.Engine.Mbrola.csproj**: MBROLA + eSpeak NG G2P diphone worker (`mbrola-worker`, Native AOT) referencing **MoonTTS.Engine.Protocol** and bundling the self-contained `libespeak-ng` library (with `numediart/MBROLA` `LibOneChannel` linked in-memory) and pruned `espeak-ng-data/`. Install with `dotnet publish Engines/Mbrola -c Release -r linux-x64 -o ~/.local/share/Moon-TTS/engines/Mbrola`.
+* **Engines/Mbrola/build-native.sh**: Reproducible native build script that compiles `numediart/MBROLA` (`LibOneChannel/lib1.c`) into `libespeak-ng.so` (`v1.52.0`) and compiles/prunes `espeak-ng-data/` (dictionaries, phoneme tables, `voices/mb/`, `mbrola_ph/`, and license notices).
+* **Engines/Mbrola/engine.json**: Manifest declaring the `mbrola` engine (`mbrola-diphone` model) and its 49 curated downloadable MBROLA diphone voice databases.
+* **Engines/Mbrola/Program.cs**: Worker entrypoint; redirects console output to stderr and runs the binary frame loop.
+* **Engines/Mbrola/EspeakMbrolaNative.cs**: Native AOT `[LibraryImport("espeak-ng")]` P/Invoke bindings and runtime native library resolver (`espeak_Initialize`, `espeak_SetSynthCallback`, `espeak_SetVoiceByName`, `espeak_SetParameter`, `espeak_Synth`, `getFreq_MBR`).
+* **Engines/Mbrola/MbrolaWorker.cs**: Protocol handler: metadata (22.05 kHz mono 16-bit), model directory resolution (`MOON_MBROLA_DIR` and bundled fallback), synchronous callback synthesis with cancellation, linear resampling (`16000 Hz -> 22050 Hz` when needed), and 3ms/5ms boundary de-clicking.
+* **Engines/Mbrola/MbrolaVoices.cs**: 49 curated voice presets (1 Male + 1 Female where available across all 36 supported MBROLA languages, ordered alphabetically by native language name).
 
 ---
 
@@ -497,7 +504,7 @@ sequenceDiagram
 * **History Audio Replay**:
   - Enables one-click preview and playback (`▶`) of previous speech synthesis outputs directly from the history tab via **HistoryManager.PlayEntryAsync(id)**.
 * **Dynamic Engine Management**:
-  - Lists the models of every installed engine and scans their installation status via **DownloadManager.IsModelDownloaded(modelId)**, rendering `✓ Installed` badges and Delete buttons for active weights, while offering Download buttons with live progress bars for missing models.
+  - Lists the models of every installed engine and scans their installation status via **DownloadManager.IsModelDownloaded(modelId)**, rendering `✓ Installed` badges and Delete buttons (`CanDelete`) for active weights, while offering Download buttons (`CanDownload`) with live progress bars for missing models. Models with an empty `downloadFiles` map (`HasDownloadableFiles == false`) automatically hide the Download and Delete buttons so pre-bundled engines cannot be accidentally deleted.
   - The model selectors (Quick Settings and the Engine tab) list an "Unselected" entry followed by every model of every installed engine. "Unselected" is the fallback when no model is saved or installed; choosing it switches to the empty engine (stopping the worker) and synthesizing then shows "Please select a model before synthesizing." in a popup above the main input box. Selecting one that is not downloaded shows "Model not installed. For download please head to the advanced settings menu" under the selector and reverts to the active model without saving; `mtts model set` likewise refuses it and points to `mtts model download`.
 
 ---

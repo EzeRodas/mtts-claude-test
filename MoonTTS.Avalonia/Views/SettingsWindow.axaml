@@ -337,9 +337,9 @@
                                                             <TextBlock Text="✓ Installed" Foreground="{StaticResource SuccessBrush}" FontWeight="Bold" 
                                                                        VerticalAlignment="Center" IsVisible="{Binding IsDownloaded}"/>
                                                             <Button Content="Delete" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteModelCommand}" 
-                                                                    CommandParameter="{Binding}" Classes="btn-danger" IsVisible="{Binding IsDownloaded}" Cursor="Hand"/>
+                                                                    CommandParameter="{Binding}" Classes="btn-danger" IsVisible="{Binding CanDelete}" Cursor="Hand"/>
                                                             <Button Content="Download" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DownloadModelCommand}" 
-                                                                    CommandParameter="{Binding}" Classes="btn-primary" IsVisible="{Binding !IsDownloaded}" Cursor="Hand"/>
+                                                                    CommandParameter="{Binding}" Classes="btn-primary" IsVisible="{Binding CanDownload}" Cursor="Hand"/>
                                                         </StackPanel>
                                                     </Grid>
                                                     <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100" Height="4" CornerRadius="2" IsVisible="{Binding IsDownloading}"/>
