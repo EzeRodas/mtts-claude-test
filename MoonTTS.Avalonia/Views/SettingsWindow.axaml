@@ -18,7 +18,8 @@
         ShowInTaskbar="False"
         RequestedThemeVariant="Light"
         Width="320"
-        Height="550">
+        Height="520">
+
 
     <Window.KeyBindings>
         <KeyBinding Gesture="Escape" Command="{Binding CloseCommand}"/>
@@ -31,8 +32,8 @@
         <Color x:Key="ColorDanger">#EF4444</Color>
         <Color x:Key="ColorDangerBg">#FEE2E2</Color>
         <Color x:Key="ColorSuccess">#10B981</Color>
-        <Color x:Key="ColorSurface">#FFFFFF</Color>
-        <Color x:Key="ColorBackground">#F9FAFB</Color>
+        <Color x:Key="ColorSurface">#F7F8F9</Color>
+        <Color x:Key="ColorBackground">#FFFFFF</Color>
         <Color x:Key="ColorHover">#F3F4F6</Color>
         <Color x:Key="ColorBorder">#E5E7EB</Color>
         <Color x:Key="ColorTextPrimary">#111827</Color>
@@ -51,6 +52,8 @@
         <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource ColorTextPrimary}"/>
         <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource ColorTextSecondary}"/>
         <SolidColorBrush x:Key="TextMutedBrush" Color="{StaticResource ColorTextMuted}"/>
+
+        <x:Double x:Key="SliderTrackThemeHeight">8</x:Double>
     </Window.Resources>
 
     <Panel Margin="6">
@@ -60,37 +63,105 @@
         <!-- =============================================================== -->
         <Border Classes="main-card" Padding="16" IsVisible="{Binding !IsAdvancedView}">
             <Border.BoxShadow>
-                <BoxShadows>0 10 25 0 #25000000</BoxShadows>
+                <BoxShadows>0 6 10 0 #25000000</BoxShadows>
             </Border.BoxShadow>
 
-            <StackPanel Spacing="14" Name="QuickSettings">
+            <StackPanel Spacing="5" Name="QuickSettings">
                 <!-- Header -->
-                <Grid ColumnDefinitions="*,Auto,Auto">
-                    <TextBlock Text="Quick settings" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                <Grid 
+                    ColumnDefinitions="*,Auto,Auto"
+                    >
+                    <TextBlock 
+                        Text="Quick settings" 
+                        FontSize="18" 
+                        Background="{StaticResource SurfaceBrush}" 
+                        FontWeight="Bold" 
+                        Foreground="{StaticResource TextPrimaryBrush}" 
+                        VerticalAlignment="Center"/>
                     
-                    <Button Grid.Column="1" Classes="btn-icon" Margin="0,0,6,0"
-                            Command="{Binding SwitchToAdvancedCommand}" ToolTip.Tip="Advanced Settings">
-                        <Path Data="M16 4h4v4 M14 10l6-6 M8 20H4v-4 M4 20l6-6 M16 20h4v-4 M14 14l6 6 M8 4H4v4 M4 4l6 6"
-                              Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="2" Width="14" Height="14" Stretch="Uniform"/>
-                    </Button>
+                    <Panel Grid.Column="1" Margin="0,0,6,0">
+                        <Button Name="SwitchAdvancedBtn" Classes="btn-icon"
+                                Command="{Binding SwitchToAdvancedCommand}">
+                            <Path Data="M16 4h4v4 M14 10l6-6 M8 20H4v-4 M4 20l6-6 M16 20h4v-4 M14 14l6 6 M8 4H4v4 M4 4l6 6"
+                                  Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="2" Width="14" Height="14" Stretch="Uniform"/>
+                        </Button>
+                        <Popup IsOpen="{Binding IsPointerOver, ElementName=SwitchAdvancedBtn}"
+                               PlacementTarget="{Binding ElementName=SwitchAdvancedBtn}"
+                               Placement="Bottom"
+                               VerticalOffset="6"
+                               IsLightDismissEnabled="False">
+                            <Border Classes="tooltip-popup">
+                                <TextBlock Text="Advanced Settings" Classes="tooltip-popup-text"/>
+                            </Border>
+                        </Popup>
+                    </Panel>
 
-                    <Button Grid.Column="2" Classes="btn-icon"
-                            Command="{Binding CloseCommand}" ToolTip.Tip="Close (Escape)">
-                        <Path Data="M18 6l-12 12 M6 6l12 12" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="2" Width="12" Height="12" Stretch="Uniform"/>
-                    </Button>
+                    <Panel Grid.Column="2">
+                        <Button Name="CloseSettingsBtn" Classes="btn-icon"
+                                Command="{Binding CloseCommand}">
+                            <Path Data="M18 6l-12 12 M6 6l12 12" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="2" Width="12" Height="12" Stretch="Uniform"/>
+                        </Button>
+                        <Popup IsOpen="{Binding IsPointerOver, ElementName=CloseSettingsBtn}"
+                               PlacementTarget="{Binding ElementName=CloseSettingsBtn}"
+                               Placement="Bottom"
+                               VerticalOffset="6"
+                               IsLightDismissEnabled="False">
+                            <Border Classes="tooltip-popup">
+                                <TextBlock Text="Close (Escape)" Classes="tooltip-popup-text"/>
+                            </Border>
+                        </Popup>
+                    </Panel>
                 </Grid>
 
-                <Separator Background="{StaticResource HoverBrush}" Height="1"/>
 
                 <!-- Model & Voice Selection -->
                 <Border Classes="card-section" Name="ModelSel">
                     <StackPanel Spacing="10">
-                        <Grid ColumnDefinitions="70,*">
-                            <TextBlock Text="Model" Classes="field-label" VerticalAlignment="Center"/>
-                            <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch">
+                        <Grid ColumnDefinitions="75,*">
+                            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                <TextBlock Text="Model" Classes="field-label" VerticalAlignment="Center"/>
+                                <Panel VerticalAlignment="Center">
+                                    <Button Name="QuickInfoBtn" Classes="btn-info"
+                                            Command="{Binding NavigateToEngineManagementCommand}">
+                                        <Path Data="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z M12 16v-4 M12 8h.01"
+                                              Stroke="{StaticResource TextMutedBrush}" StrokeThickness="1.8"
+                                              StrokeLineCap="Round" StrokeJoin="Round"
+                                              Width="13" Height="13" Stretch="Uniform"/>
+                                    </Button>
+                                    <Popup IsOpen="{Binding IsPointerOver, ElementName=QuickInfoBtn}"
+                                           PlacementTarget="{Binding ElementName=QuickInfoBtn}"
+                                           Placement="Bottom"
+                                           VerticalOffset="6"
+                                           IsLightDismissEnabled="False">
+                                        <Border Background="{StaticResource SurfaceBrush}"
+                                                BorderBrush="{StaticResource BorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="10,8"
+                                                MaxWidth="240">
+                                            <Border.BoxShadow>
+                                                <BoxShadows>0 4 12 0 #20000000</BoxShadows>
+                                            </Border.BoxShadow>
+                                            <TextBlock Text="To download a TTS Engine please head to the &quot;Engine Management&quot; tab on the Advanced Settings menu."
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       FontSize="12"
+                                                       TextWrapping="Wrap"/>
+                                        </Border>
+                                    </Popup>
+                                </Panel>
+                            </StackPanel>
+                            <ComboBox Grid.Column="1" Classes="model-selector" ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate x:DataType="valueObjects:ModelMetadata">
-                                        <TextBlock Text="{Binding DisplayName}"/>
+                                        <Panel>
+                                            <TextBlock Text="{Binding DisplayName}" IsVisible="{Binding !IsSeparator}"
+                                                       Classes.unavailable="{Binding !IsSelectable}"/>
+                                            <StackPanel IsVisible="{Binding IsSeparator}" Spacing="4" Margin="0,4,0,2">
+                                                <Separator Background="{StaticResource BorderBrush}" Height="1" Margin="0,0,0,2"/>
+                                                <TextBlock Text="{Binding DisplayName}" FontSize="10" FontWeight="Bold"
+                                                           Foreground="{StaticResource TextMutedBrush}"/>
+                                            </StackPanel>
+                                        </Panel>
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
@@ -113,7 +184,7 @@
                 <Border Classes="card-section">
                     <StackPanel Spacing="8">
                         <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Text="Output" Classes="field-label" VerticalAlignment="Center"/>
+                            <TextBlock Text="Audio Output" Classes="field-label" VerticalAlignment="Center"/>
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnablePrimaryPlayback}" OnContent="" OffContent=""/>
                         </Grid>
                         <ComboBox ItemsSource="{Binding AvailableOutputDevices}" 
@@ -126,9 +197,7 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                         <Grid ColumnDefinitions="*,40">
-                            <Slider Minimum="0" Maximum="100" Value="{Binding PrimaryVolume}"
-                                    ToolTip.Tip="{Binding PrimaryVolume, StringFormat={}{0}%}"
-                                    ToolTip.ShowDelay="0" ToolTip.Placement="Top"/>
+                            <Slider Minimum="0" Maximum="100" Value="{Binding PrimaryVolume}"/>
                             <TextBlock Grid.Column="1" Text="{Binding PrimaryVolume, StringFormat={}{0}%}"
                                        FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"
                                        VerticalAlignment="Center" HorizontalAlignment="Right"/>
@@ -153,9 +222,7 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                         <Grid ColumnDefinitions="*,40">
-                            <Slider Minimum="0" Maximum="100" Value="{Binding MonitorVolume}"
-                                    ToolTip.Tip="{Binding MonitorVolume, StringFormat={}{0}%}"
-                                    ToolTip.ShowDelay="0" ToolTip.Placement="Top"/>
+                            <Slider Minimum="0" Maximum="100" Value="{Binding MonitorVolume}"/>
                             <TextBlock Grid.Column="1" Text="{Binding MonitorVolume, StringFormat={}{0}%}"
                                        FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"
                                        VerticalAlignment="Center" HorizontalAlignment="Right"/>
@@ -242,7 +309,7 @@
                                             <ComboBox.ItemTemplate><DataTemplate x:DataType="entities:AudioDeviceInfo"><TextBlock Text="{Binding DeviceName}"/></DataTemplate></ComboBox.ItemTemplate>
                                         </ComboBox>
                                         <Grid ColumnDefinitions="*,40">
-                                            <Slider Minimum="0" Maximum="100" Value="{Binding PrimaryVolume}" ToolTip.Tip="{Binding PrimaryVolume, StringFormat={}{0}%}" ToolTip.ShowDelay="0"/>
+                                            <Slider Minimum="0" Maximum="100" Value="{Binding PrimaryVolume}"/>
                                             <TextBlock Grid.Column="1" Text="{Binding PrimaryVolume, StringFormat={}{0}%}" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                                         </Grid>
                                     </StackPanel>
@@ -257,7 +324,7 @@
                                             <ComboBox.ItemTemplate><DataTemplate x:DataType="entities:AudioDeviceInfo"><TextBlock Text="{Binding DeviceName}"/></DataTemplate></ComboBox.ItemTemplate>
                                         </ComboBox>
                                         <Grid ColumnDefinitions="*,40">
-                                            <Slider Minimum="0" Maximum="100" Value="{Binding MonitorVolume}" ToolTip.Tip="{Binding MonitorVolume, StringFormat={}{0}%}" ToolTip.ShowDelay="0"/>
+                                            <Slider Minimum="0" Maximum="100" Value="{Binding MonitorVolume}"/>
                                             <TextBlock Grid.Column="1" Text="{Binding MonitorVolume, StringFormat={}{0}%}" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                                         </Grid>
                                     </StackPanel>
@@ -284,7 +351,18 @@
                                             <Grid ColumnDefinitions="*,*,Auto">
                                                 <TextBlock Text="{Binding Original}" VerticalAlignment="Center"/>
                                                 <TextBlock Grid.Column="1" Text="{Binding Spelling}" Foreground="{StaticResource PrimaryBrush}" VerticalAlignment="Center"/>
-                                                <Button Grid.Column="2" Content="✕" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteDictionaryEntryCommand}" CommandParameter="{Binding Id}" Classes="btn-icon btn-delete" ToolTip.Tip="Delete"/>
+                                                <Panel Grid.Column="2">
+                                                    <Button Name="DeleteDictBtn" Content="✕" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteDictionaryEntryCommand}" CommandParameter="{Binding Id}" Classes="btn-icon btn-delete"/>
+                                                    <Popup IsOpen="{Binding IsPointerOver, ElementName=DeleteDictBtn}"
+                                                           PlacementTarget="{Binding ElementName=DeleteDictBtn}"
+                                                           Placement="Top"
+                                                           VerticalOffset="-4"
+                                                           IsLightDismissEnabled="False">
+                                                        <Border Classes="tooltip-popup">
+                                                            <TextBlock Text="Delete" Classes="tooltip-popup-text"/>
+                                                        </Border>
+                                                    </Popup>
+                                                </Panel>
                                             </Grid>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
@@ -294,11 +372,50 @@
                             <!-- TTS Engine Tab -->
                             <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.Engine}}">
                                 <TextBlock Text="TTS Engine Configuration" Classes="section-title"/>
-                                <TextBlock Text="Active Model" Classes="field-label"/>
-                                <ComboBox ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch">
+                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <TextBlock Text="Active Model" Classes="field-label" VerticalAlignment="Center"/>
+                                    <Panel VerticalAlignment="Center">
+                                        <Button Name="AdvancedInfoBtn" Classes="btn-info"
+                                                Command="{Binding NavigateToEngineManagementCommand}">
+                                            <Path Data="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z M12 16v-4 M12 8h.01"
+                                                  Stroke="{StaticResource TextMutedBrush}" StrokeThickness="1.8"
+                                                  StrokeLineCap="Round" StrokeJoin="Round"
+                                                  Width="13" Height="13" Stretch="Uniform"/>
+                                        </Button>
+                                        <Popup IsOpen="{Binding IsPointerOver, ElementName=AdvancedInfoBtn}"
+                                               PlacementTarget="{Binding ElementName=AdvancedInfoBtn}"
+                                               Placement="Bottom"
+                                               VerticalOffset="6"
+                                               IsLightDismissEnabled="False">
+                                            <Border Background="{StaticResource SurfaceBrush}"
+                                                    BorderBrush="{StaticResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    Padding="10,8"
+                                                    MaxWidth="260">
+                                                <Border.BoxShadow>
+                                                    <BoxShadows>0 4 12 0 #20000000</BoxShadows>
+                                                </Border.BoxShadow>
+                                                <TextBlock Text="To download a TTS Engine please head to the &quot;Engine Management&quot; tab on the Advanced Settings menu."
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           FontSize="12"
+                                                           TextWrapping="Wrap"/>
+                                            </Border>
+                                        </Popup>
+                                    </Panel>
+                                </StackPanel>
+                                <ComboBox Classes="model-selector" ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate x:DataType="valueObjects:ModelMetadata">
-                                            <TextBlock Text="{Binding DisplayName}"/>
+                                            <Panel>
+                                                <TextBlock Text="{Binding DisplayName}" IsVisible="{Binding !IsSeparator}"
+                                                           Classes.unavailable="{Binding !IsSelectable}"/>
+                                                <StackPanel IsVisible="{Binding IsSeparator}" Spacing="4" Margin="0,4,0,2">
+                                                    <Separator Background="{StaticResource BorderBrush}" Height="1" Margin="0,0,0,2"/>
+                                                    <TextBlock Text="{Binding DisplayName}" FontSize="10" FontWeight="Bold"
+                                                               Foreground="{StaticResource TextMutedBrush}"/>
+                                                </StackPanel>
+                                            </Panel>
                                         </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                 </ComboBox>
@@ -316,7 +433,7 @@
                                     <TextBlock Text="Synthesis Speed" Classes="field-label"/>
                                     <TextBlock Grid.Column="1" Text="{Binding SpeechSpeed, StringFormat={}{0:0.0}x}" FontWeight="SemiBold" HorizontalAlignment="Right"/>
                                 </Grid>
-                                <Slider Minimum="0.5" Maximum="2.0" Value="{Binding SpeechSpeed}" ToolTip.Tip="{Binding SpeechSpeed, StringFormat={}{0:0.0}x}" ToolTip.ShowDelay="0"/>
+                                <Slider Minimum="0.5" Maximum="2.0" Value="{Binding SpeechSpeed}"/>
                                 <TextBlock Text="Custom Models Directory" Classes="field-label"/>
                                 <TextBox Text="{Binding CustomModelsDirectory}" PlaceholderText="Default (~/.local/share/Moon-TTS/models/)"/>
                             </StackPanel>
@@ -329,22 +446,48 @@
                                 <ItemsControl ItemsSource="{Binding ModelStatuses}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:ModelStatusItem">
-                                            <Border Classes="card-section" Margin="0,0,0,10">
-                                                <StackPanel Spacing="8">
-                                                    <Grid ColumnDefinitions="*,Auto">
-                                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" VerticalAlignment="Center"/>
-                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                                            <TextBlock Text="✓ Installed" Foreground="{StaticResource SuccessBrush}" FontWeight="Bold" 
-                                                                       VerticalAlignment="Center" IsVisible="{Binding IsDownloaded}"/>
-                                                            <Button Content="Delete" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteModelCommand}" 
-                                                                    CommandParameter="{Binding}" Classes="btn-danger" IsVisible="{Binding CanDelete}" Cursor="Hand"/>
-                                                            <Button Content="Download" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DownloadModelCommand}" 
-                                                                    CommandParameter="{Binding}" Classes="btn-primary" IsVisible="{Binding CanDownload}" Cursor="Hand"/>
-                                                        </StackPanel>
-                                                    </Grid>
-                                                    <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100" Height="4" CornerRadius="2" IsVisible="{Binding IsDownloading}"/>
+                                            <Panel>
+                                                <!-- Engine Group Separator & Header -->
+                                                <StackPanel IsVisible="{Binding IsSeparator}" Margin="0,14,0,8" Spacing="6">
+                                                    <Separator Background="{StaticResource BorderBrush}" Height="1"/>
+                                                    <TextBlock Text="{Binding SeparatorTitle}" FontSize="13" FontWeight="Bold"
+                                                               Foreground="{StaticResource PrimaryBrush}"/>
                                                 </StackPanel>
-                                            </Border>
+
+                                                <!-- Model Card -->
+                                                <Border Classes="card-section" IsVisible="{Binding !IsSeparator}">
+                                                    <StackPanel Spacing="8">
+                                                        <StackPanel Spacing="6" VerticalAlignment="Center" Margin="0,0,12,0">
+                                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap"/>
+                                                            <!-- Model Tags: Size, Ram usage, CPU usage -->
+                                                            <WrapPanel Orientation="Horizontal" IsVisible="{Binding HasTags}">
+                                                                <Border Classes="model-tag" IsVisible="{Binding SizeTag, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                                    <TextBlock Text="{Binding SizeTag}" Classes="model-tag-text"/>
+                                                                </Border>
+                                                                <Border Classes="model-tag" IsVisible="{Binding RamUsageTag, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                                    <TextBlock Text="{Binding RamUsageTag}" Classes="model-tag-text"/>
+                                                                </Border>
+                                                                <Border Classes="model-tag"
+                                                                        Classes.cpu-low="{Binding IsCpuLow}"
+                                                                        Classes.cpu-medium="{Binding IsCpuMedium}"
+                                                                        Classes.cpu-high="{Binding IsCpuHigh}"
+                                                                        IsVisible="{Binding CpuUsageTag, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                                    <TextBlock Text="{Binding CpuUsageTag}" Classes="model-tag-text"/>
+                                                                </Border>
+                                                            </WrapPanel>
+                                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                                <TextBlock Text="✓ Installed" Foreground="{StaticResource SuccessBrush}" FontWeight="Bold" 
+                                                                           VerticalAlignment="Center" IsVisible="{Binding IsDownloaded}"/>
+                                                                <Button Content="Delete" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteModelCommand}" 
+                                                                        CommandParameter="{Binding}" Classes="btn-danger" IsVisible="{Binding CanDelete}" Cursor="Hand"/>
+                                                                <Button Content="Download" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DownloadModelCommand}" 
+                                                                        CommandParameter="{Binding}" Classes="btn-primary" IsVisible="{Binding CanDownload}" Cursor="Hand"/>
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                        <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100" Height="4" CornerRadius="2" IsVisible="{Binding IsDownloading}"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </Panel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -390,8 +533,19 @@
                                             <Grid ColumnDefinitions="120,*,Auto">
                                                 <TextBlock Text="{Binding Hotkey}" FontWeight="Bold" VerticalAlignment="Center"/>
                                                 <TextBlock Grid.Column="1" Text="{Binding Text}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                                <Button Grid.Column="2" Content="✕" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteHotkeyPhraseCommand}"
-                                                        CommandParameter="{Binding Id}" Classes="btn-icon btn-delete" ToolTip.Tip="Delete"/>
+                                                <Panel Grid.Column="2">
+                                                    <Button Name="DeleteHotkeyBtn" Content="✕" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteHotkeyPhraseCommand}"
+                                                            CommandParameter="{Binding Id}" Classes="btn-icon btn-delete"/>
+                                                    <Popup IsOpen="{Binding IsPointerOver, ElementName=DeleteHotkeyBtn}"
+                                                           PlacementTarget="{Binding ElementName=DeleteHotkeyBtn}"
+                                                           Placement="Top"
+                                                           VerticalOffset="-4"
+                                                           IsLightDismissEnabled="False">
+                                                        <Border Classes="tooltip-popup">
+                                                            <TextBlock Text="Delete" Classes="tooltip-popup-text"/>
+                                                        </Border>
+                                                    </Popup>
+                                                </Panel>
                                             </Grid>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
@@ -410,8 +564,30 @@
                                         <DataTemplate x:DataType="entities:HistoryEntry">
                                             <Grid ColumnDefinitions="*,Auto,Auto">
                                                 <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                                <Button Grid.Column="1" Content="▶" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).PlayHistoryItemCommand}" CommandParameter="{Binding Id}" Classes="btn-icon" Margin="4,0" ToolTip.Tip="Play"/>
-                                                <Button Grid.Column="2" Content="✕" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteHistoryItemCommand}" CommandParameter="{Binding Id}" Classes="btn-icon btn-delete" ToolTip.Tip="Delete"/>
+                                                <Panel Grid.Column="1" Margin="4,0">
+                                                    <Button Name="PlayHistoryBtn" Content="▶" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).PlayHistoryItemCommand}" CommandParameter="{Binding Id}" Classes="btn-icon"/>
+                                                    <Popup IsOpen="{Binding IsPointerOver, ElementName=PlayHistoryBtn}"
+                                                           PlacementTarget="{Binding ElementName=PlayHistoryBtn}"
+                                                           Placement="Top"
+                                                           VerticalOffset="-4"
+                                                           IsLightDismissEnabled="False">
+                                                        <Border Classes="tooltip-popup">
+                                                            <TextBlock Text="Play" Classes="tooltip-popup-text"/>
+                                                        </Border>
+                                                    </Popup>
+                                                </Panel>
+                                                <Panel Grid.Column="2">
+                                                    <Button Name="DeleteHistoryBtn" Content="✕" Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).DeleteHistoryItemCommand}" CommandParameter="{Binding Id}" Classes="btn-icon btn-delete"/>
+                                                    <Popup IsOpen="{Binding IsPointerOver, ElementName=DeleteHistoryBtn}"
+                                                           PlacementTarget="{Binding ElementName=DeleteHistoryBtn}"
+                                                           Placement="Top"
+                                                           VerticalOffset="-4"
+                                                           IsLightDismissEnabled="False">
+                                                        <Border Classes="tooltip-popup">
+                                                            <TextBlock Text="Delete" Classes="tooltip-popup-text"/>
+                                                        </Border>
+                                                    </Popup>
+                                                </Panel>
                                             </Grid>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
@@ -436,6 +612,8 @@
             <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
             <Setter Property="CornerRadius" Value="12"/>
             <Setter Property="Padding" Value="12"/>
+            <Setter Property="Margin" Value="4"/>
+            <Setter Property="BoxShadow" Value="0 2 8 0 #20000000"/>
         </Style>
         <Style Selector="TextBlock.section-title">
             <Setter Property="FontSize" Value="20"/>
@@ -490,6 +668,19 @@
         <Style Selector="Button.btn-delete">
             <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
         </Style>
+        <Style Selector="Button.btn-info">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Opacity" Value="0.6"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.btn-info:pointerover">
+            <Setter Property="Opacity" Value="1.0"/>
+        </Style>
+        <Style Selector="Button.btn-info:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
         <Style Selector="Button.nav-item">
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
@@ -536,6 +727,72 @@
             <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
             <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}"/>
             <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        <Style Selector="ComboBox.model-selector ComboBoxItem" x:DataType="valueObjects:ModelMetadata">
+            <Setter Property="IsEnabled" Value="{Binding IsSelectable}"/>
+            <Setter Property="IsHitTestVisible" Value="{Binding IsSelectable}"/>
+        </Style>
+        <Style Selector="TextBlock.unavailable">
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
+        <Style Selector="Border.model-tag">
+            <Setter Property="Background" Value="#F3F4F6"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="Margin" Value="0,2,6,2"/>
+        </Style>
+        <Style Selector="TextBlock.model-tag-text">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        </Style>
+        <Style Selector="Border.model-tag.cpu-low">
+            <Setter Property="Background" Value="#ECFDF5"/>
+            <Setter Property="BorderBrush" Value="#A7F3D0"/>
+        </Style>
+        <Style Selector="Border.model-tag.cpu-low > TextBlock">
+            <Setter Property="Foreground" Value="#065F46"/>
+        </Style>
+        <Style Selector="Border.model-tag.cpu-medium">
+            <Setter Property="Background" Value="#FFFBEB"/>
+            <Setter Property="BorderBrush" Value="#FDE68A"/>
+        </Style>
+        <Style Selector="Border.model-tag.cpu-medium > TextBlock">
+            <Setter Property="Foreground" Value="#92400E"/>
+        </Style>
+        <Style Selector="Border.model-tag.cpu-high">
+            <Setter Property="Background" Value="{StaticResource DangerBgBrush}"/>
+            <Setter Property="BorderBrush" Value="#FECACA"/>
+        </Style>
+        <Style Selector="Border.model-tag.cpu-high > TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+        </Style>
+        <Style Selector="Border.tooltip-popup">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="BoxShadow" Value="0 4 12 0 #20000000"/>
+        </Style>
+        <Style Selector="TextBlock.tooltip-popup-text">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+        </Style>
+        <Style Selector="Slider:horizontal /template/ RepeatButton">
+            <Setter Property="ClipToBounds" Value="False"/>
+        </Style>
+        <Style Selector="Slider:horizontal /template/ RepeatButton#PART_DecreaseButton /template/ Border#TrackBackground">
+            <Setter Property="CornerRadius" Value="4,0,0,4"/>
+            <Setter Property="Margin" Value="0,0,-10,0"/>
+        </Style>
+        <Style Selector="Slider:horizontal /template/ RepeatButton#PART_IncreaseButton /template/ Border#TrackBackground">
+            <Setter Property="CornerRadius" Value="0,4,4,0"/>
+            <Setter Property="Margin" Value="-10,0,0,0"/>
         </Style>
     </Window.Styles>
 </Window>

@@ -3,7 +3,7 @@
         xmlns:vm="using:MoonTTS.Avalonia.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="770" d:DesignHeight="50"
+        mc:Ignorable="d" d:DesignWidth="780" d:DesignHeight="60"
         x:Class="MoonTTS.Avalonia.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="/Assets/icon.ico"
@@ -28,45 +28,83 @@
     </Design.DataContext>
 
     <StackPanel 
-        Width="768" 
-        Height="48" 
-        Spacing="12" 
+        Width="780"
+        Height="60"
+        Spacing="12"
         Orientation="Horizontal"
         >
-        
         <!-- About button -->
-        <HyperlinkButton
-            NavigateUri="https://github.com/EzeRodas/Moon-TTS-CS"
-            ToolTip.Tip="About"
-            Width="48" 
-            Height="48" 
-            CornerRadius="100"
+        <Panel 
+            VerticalAlignment="Center"
+            HorizontalAlignment="Center"
+            Margin="6, 6, 0, 6"
             Background="Transparent"
-            Cursor="Hand"
-            Classes="AboutBtn"
             >
-            <Image 
-                Source="../Assets/icon.png" 
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Height="48"
+            <Border 
                 Width="48"
+                Height="48"
+                CornerRadius="100"
+                Background="Transparent"
+                BorderThickness="0"
+                BoxShadow="0 2 6 0 #30000000"
                 >
-                <Image.Clip>
-                    <EllipseGeometry RadiusX="23.8" RadiusY="23.8" Center="24,24"/>
-                </Image.Clip>
-            </Image>
-        </HyperlinkButton>
+                <HyperlinkButton
+                    Name="AboutBtn"
+                    NavigateUri="https://github.com/EzeRodas/Moon-TTS-CS"
+                    Width="48" 
+                    Height="48" 
+                    CornerRadius="100"
+                    Background="Transparent"
+                    Cursor="Hand"
+                    Classes="AboutBtn"
+                    >
+                    <Image 
+                        Source="../Assets/icon.png" 
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Height="48"
+                        Width="48"
+                        >
+                        <Image.Clip>
+                            <EllipseGeometry RadiusX="23.8" RadiusY="23.8" Center="24,24"/>
+                        </Image.Clip>
+                    </Image>
+                </HyperlinkButton>
+            </Border>
+            <Popup IsOpen="{Binding IsPointerOver, ElementName=AboutBtn}"
+                   PlacementTarget="{Binding ElementName=AboutBtn}"
+                   Placement="Top"
+                   VerticalOffset="-6"
+                   IsLightDismissEnabled="False">
+                <Border Background="White"
+                        BorderBrush="#E5E7EB"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="8,4">
+                    <Border.BoxShadow>
+                        <BoxShadows>0 4 12 0 #30000000</BoxShadows>
+                    </Border.BoxShadow>
+                    <TextBlock Text="About"
+                               Foreground="#111827"
+                               FontSize="11"
+                               FontWeight="Medium"/>
+                </Border>
+            </Popup>
+        </Panel>
         
         <!-- Drag Button -->
         <Border 
             Width="48" 
             Height="48" 
             CornerRadius="48" 
+            Background="White"
             Cursor="Hand"
+            BorderThickness="0"
+            Margin="0, 6, 0, 6"
             x:Name="DragBtn"
             PointerPressed="DragButton_PointerPressed"
             PointerReleased="DragButton_PointerReleased"
+            BoxShadow="0 2 6 0 #30000000"
             >
             <Path
                 Data="M18 9l3 3l-3 3 M15 12h6 M6 9l-3 3l3 3 M3 12h6 M9 18l3 3l3 -3 M12 15v6 M15 6l-3 -3l-3 3 M12 3v6"
@@ -81,36 +119,52 @@
         </Border>
         
         <!-- Settings Button -->
-        <Button 
-            Width="48" 
-            Height="48" 
-            CornerRadius="100" 
-            Background="White"
-            HorizontalContentAlignment="Center"
-            VerticalContentAlignment="Center"
-            Cursor="Hand"
-            Command="{Binding ToggleSettingsCommand}"
+        <Border
+            Width="48"
+            Height="48"
+            CornerRadius="48"
+            BorderThickness="0"
+            Background="Transparent"
+            BoxShadow="0 2 6 0 #30000000"
             >
-            
-            <Path
-                Data="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065 M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"
-                Width="28"
-                Height="28"
-                StrokeLineCap="Round"
-                StrokeJoin="Round"
-                Stretch="Fill"
-                Stroke="#333"
-                StrokeThickness="3"
-            />
-        </Button>
+            <Button 
+                Width="48" 
+                Height="48" 
+                CornerRadius="100" 
+                Background="White"
+                HorizontalContentAlignment="Center"
+                VerticalContentAlignment="Center"
+                Cursor="Hand"
+                Margin="0, 6, 0, 6"
+                Command="{Binding ToggleSettingsCommand}"
+                >
+                
+                <Path
+                    Data="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065 M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"
+                    Width="28"
+                    Height="28"
+                    StrokeLineCap="Round"
+                    StrokeJoin="Round"
+                    Stretch="Fill"
+                    Stroke="#333"
+                    StrokeThickness="3"
+                />
+            </Button>
+        </Border>
         
         <!-- Input Box -->
         <Grid
             Width="492"
+            Margin="0, 6, 0, 6"
             >
             <Border
                 BorderBrush="Transparent"
+                Width="492"
+                Height="48"
+                Background="Transparent"
                 BorderThickness="0"
+                CornerRadius="100"
+                BoxShadow="0 2 6 0 #30000000"
                 >
                 <!-- TextBox -->
                 <TextBox 
@@ -185,7 +239,6 @@
                 <Button 
                     Width="44" 
                     Height="44" 
-                    Margin="2"
                     CornerRadius="48" 
                     HorizontalAlignment="Right"
                     HorizontalContentAlignment="Center"
@@ -233,57 +286,74 @@
                 </Border>
             </Popup>
         </Grid>
-        
-        
         <!-- Send Button -->
-        <Button 
-            Width="48" 
-            Height="48" 
-            CornerRadius="48" 
-            Background="White"
-            HorizontalContentAlignment="Center"
-            VerticalContentAlignment="Center"
-            Cursor="Hand"
-            Command="{Binding PlayCommand}"
-        >
-            <Path
-                Data="M4 13a8 8 0 0 1 7 7a6 6 0 0 0 3 -5a9 9 0 0 0 6 -8a3 3 0 0 0 -3 -3a9 9 0 0 0 -8 6a6 6 0 0 0 -5 3 M7 14a6 6 0 0 0 -3 6a6 6 0 0 0 6 -3 M14 9a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
-                Width="24"
-                Height="24"
-                StrokeLineCap="Round"
-                StrokeJoin="Round"
-                Stretch="Fill"
-                Stroke="#333"
-                StrokeThickness="3"
-            />
-        </Button>
-        
+        <Border
+            Width="48"
+            Height="48"
+            CornerRadius="100"
+            Background="Transparent"
+            BorderThickness="0"
+            BoxShadow="0 2 6 0 #30000000"
+            >
+            <Button 
+                Width="48" 
+                Height="48" 
+                Margin="0, 6, 0, 6"
+                CornerRadius="48" 
+                Background="White"
+                HorizontalContentAlignment="Center"
+                VerticalContentAlignment="Center"
+                Cursor="Hand"
+                Command="{Binding PlayCommand}"
+            >
+                <Path
+                    Data="M4 13a8 8 0 0 1 7 7a6 6 0 0 0 3 -5a9 9 0 0 0 6 -8a3 3 0 0 0 -3 -3a9 9 0 0 0 -8 6a6 6 0 0 0 -5 3 M7 14a6 6 0 0 0 -3 6a6 6 0 0 0 6 -3 M14 9a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
+                    Width="24"
+                    Height="24"
+                    StrokeLineCap="Round"
+                    StrokeJoin="Round"
+                    Stretch="Fill"
+                    Stroke="#333"
+                    StrokeThickness="3"
+                />
+            </Button>
+        </Border>
         <!-- Close Button -->
-        <Button 
-            Width="24" 
-            Height="24" 
-            CornerRadius="48" 
-            Background="White"
+        <Border
+            Width="24"
+            Height="24"
+            Background="Transparent"
+            BorderThickness="0"
+            CornerRadius="100"
+            Margin="0, 6, 6, 6"
+            BoxShadow="0 2 6 0 #30000000"
             VerticalAlignment="Top"
             HorizontalAlignment="Left"
-            HorizontalContentAlignment="Center"
-            VerticalContentAlignment="Center"
-            Cursor="Hand"
-            Classes="CloseBtn"
-            Command="{Binding CloseAppCommand}"
-        >
-            <Path
-                Data="M18 6l-12 12 M6 6l12 12"
-                Width="8"
-                Height="8"
-                StrokeLineCap="Round"
-                StrokeJoin="Round"
-                Stretch="Fill"
-                Stroke="#333"
-                StrokeThickness="3"
-                
-            />
-        </Button>
+            >
+            <Button 
+                Width="24" 
+                Height="24" 
+                CornerRadius="48" 
+                Background="White"
+                HorizontalContentAlignment="Center"
+                VerticalContentAlignment="Center"
+                Cursor="Hand"
+                Classes="CloseBtn"
+                Command="{Binding CloseAppCommand}"
+            >
+                <Path
+                    Data="M18 6l-12 12 M6 6l12 12"
+                    Width="8"
+                    Height="8"
+                    StrokeLineCap="Round"
+                    StrokeJoin="Round"
+                    Stretch="Fill"
+                    Stroke="#333"
+                    StrokeThickness="3"
+                    
+                />
+            </Button>
+        </Border>
     </StackPanel>
     <Window.Styles>
         

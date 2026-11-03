@@ -36,7 +36,7 @@ public static class ListModelsCommand
                 return 0;
             }
 
-            var headers = new[] { "Model Key", "Display Name", "Downloaded", "Status" };
+            var headers = new[] { "Model Key", "Display Name", "Size", "RAM", "CPU", "Downloaded", "Status" };
 
             var rows = availableModels.Select(m =>
             {
@@ -47,6 +47,9 @@ public static class ListModelsCommand
                 {
                     m.Id.ToString(),
                     m.DisplayName,
+                    m.Size.HasValue ? $"{m.Size.Value} MB" : "-",
+                    m.RamUsage.HasValue ? $"{m.RamUsage.Value} MB" : "-",
+                    !string.IsNullOrWhiteSpace(m.CpuUsage) ? m.CpuUsage : "-",
                     isDownloaded ? "Yes" : "No",
                     isActive ? "ACTIVE" : "-"
                 };

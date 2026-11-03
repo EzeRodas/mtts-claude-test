@@ -8,6 +8,9 @@
     {
       "id": "mbrola-diphone",
       "displayName": "MBROLA Multilingual Diphones",
+      "size": 307,
+      "ramUsage": 15,
+      "cpuUsage": "low",
       "downloadFiles": {
         "af1": "https://raw.githubusercontent.com/numediart/MBROLA-voices/master/data/af1/af1",
         "ar1": "https://raw.githubusercontent.com/numediart/MBROLA-voices/master/data/ar1/ar1",

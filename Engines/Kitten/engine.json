@@ -1,0 +1,53 @@
+{
+  "id": "kitten",
+  "displayName": "Kitten TTS ONNX Synthesizer",
+  "description": "Ultra-lightweight CPU-optimized neural text-to-speech running on ONNX Runtime.",
+  "version": "0.8.0",
+  "executable": "kitten-worker",
+  "models": [
+    {
+      "id": "kitten-tts-nano-0.8-int8",
+      "displayName": "Kitten TTS Nano v0.8 (INT8 - Ultra Fast)",
+      "size": 26,
+      "ramUsage": 90,
+      "cpuUsage": "low",
+      "downloadFiles": {
+        "kitten_tts_nano_v0_8_int8.onnx": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-int8/resolve/main/kitten_tts_nano_v0_8.onnx",
+        "kitten_tts_nano_v0_8_voices.npz": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-int8/resolve/main/voices.npz"
+      }
+    },
+    {
+      "id": "kitten-tts-nano-0.8-fp32",
+      "displayName": "Kitten TTS Nano v0.8 (FP32)",
+      "size": 57,
+      "ramUsage": 130,
+      "cpuUsage": "low",
+      "downloadFiles": {
+        "kitten_tts_nano_v0_8_fp32.onnx": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32/resolve/main/kitten_tts_nano_v0_8.onnx",
+        "kitten_tts_nano_v0_8_voices.npz": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32/resolve/main/voices.npz"
+      }
+    },
+    {
+      "id": "kitten-tts-micro-0.8",
+      "displayName": "Kitten TTS Micro v0.8 (Balanced)",
+      "size": 43,
+      "ramUsage": 115,
+      "cpuUsage": "medium",
+      "downloadFiles": {
+        "kitten_tts_micro_v0_8.onnx": "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
+        "kitten_tts_micro_v0_8_voices.npz": "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/voices.npz"
+      }
+    },
+    {
+      "id": "kitten-tts-mini-0.8",
+      "displayName": "Kitten TTS Mini v0.8 (High Quality)",
+      "size": 78,
+      "ramUsage": 170,
+      "cpuUsage": "medium",
+      "downloadFiles": {
+        "kitten_tts_mini_v0_8.onnx": "https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/kitten_tts_mini_v0_8.onnx",
+        "kitten_tts_mini_v0_8_voices.npz": "https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/voices.npz"
+      }
+    }
+  ]
+}

@@ -18,6 +18,7 @@ namespace MoonTTS.Avalonia.ViewModels;
         - SettingsViewModel(SettingsManager, IAudioPlayer, IWindowService, DownloadManager, DictionaryManager?, HotkeyManager?, HistoryManager?, TtsEngineProvider?)
         - LoadAudioDevices() : void
         - LoadTtsEngines() : void
+        - UpdateAvailableModelDownloadState(ModelId, bool) : void
         - RefreshVoicesAsync() : Task
         - SelectVoiceFromConfig() : void
         - LoadSettings() : void
@@ -36,6 +37,7 @@ namespace MoonTTS.Avalonia.ViewModels;
         - PlayHistoryItemAsync(Guid) : Task
         - ClearHistory() : void
         - DeleteHistoryItem(Guid) : void
+        - NavigateToEngineManagement() : void
         - DownloadModelAsync(ModelStatusItem) : Task
         - DeleteModel(ModelStatusItem) : void
         - Close() : void
@@ -62,6 +64,32 @@ public partial class ModelStatusItem : ObservableObject
     private string _name = string.Empty;
 
     [ObservableProperty]
+    private bool _isSeparator;
+
+    [ObservableProperty]
+    private string _separatorTitle = string.Empty;
+
+    [ObservableProperty]
+    private string? _sizeTag;
+
+    [ObservableProperty]
+    private string? _ramUsageTag;
+
+    [ObservableProperty]
+    private string? _cpuUsageTag;
+
+    [ObservableProperty]
+    private bool _isCpuLow;
+
+    [ObservableProperty]
+    private bool _isCpuMedium;
+
+    [ObservableProperty]
+    private bool _isCpuHigh;
+
+    public bool HasTags => !string.IsNullOrEmpty(SizeTag) || !string.IsNullOrEmpty(RamUsageTag) || !string.IsNullOrEmpty(CpuUsageTag);
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanDownload))]
     [NotifyPropertyChangedFor(nameof(CanDelete))]
     private bool _isDownloaded;
@@ -78,10 +106,10 @@ public partial class ModelStatusItem : ObservableObject
     private double _progress;
 
     /* True when the manifest declares downloadable files that are not yet downloaded */
-    public bool CanDownload => HasDownloadableFiles && !IsDownloaded;
+    public bool CanDownload => !IsSeparator && HasDownloadableFiles && !IsDownloaded;
 
     /* True when the manifest declares downloadable files that are currently downloaded */
-    public bool CanDelete => HasDownloadableFiles && IsDownloaded;
+    public bool CanDelete => !IsSeparator && HasDownloadableFiles && IsDownloaded;
 }
 
 public partial class SettingsViewModel : ViewModelBase
@@ -276,7 +304,7 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
-    /* Populates every model offered by the installed engines, preceded by the "Unselected" entry */
+    /* Populates every model offered by the installed engines grouped by engine with separators, preceded by the "Unselected" entry */
     private void LoadTtsEngines()
     {
         AvailableModels.Clear();
@@ -284,8 +312,34 @@ public partial class SettingsViewModel : ViewModelBase
         if (_downloadManager == null)
             return;
 
-        foreach (var model in _downloadManager.GetAvailableModels())
-            AvailableModels.Add(model);
+        foreach (var engine in _downloadManager.GetEngines())
+        {
+            if (engine.Models.Count == 0)
+                continue;
+
+            string engineTitle = !string.IsNullOrWhiteSpace(engine.DisplayName) ? engine.DisplayName : engine.Id;
+            AvailableModels.Add(ModelMetadata.CreateSeparator(engineTitle));
+
+            foreach (var model in engine.Models)
+            {
+                bool isDownloaded = _downloadManager.IsModelDownloaded(model.Id);
+                AvailableModels.Add(model with { IsDownloaded = isDownloaded });
+            }
+        }
+    }
+
+    /* Synchronizes the download status of an entry in AvailableModels so model dropdowns update live */
+    private void UpdateAvailableModelDownloadState(ModelId modelId, bool isDownloaded)
+    {
+        for (int i = 0; i < AvailableModels.Count; i++)
+        {
+            var model = AvailableModels[i];
+            if (model.Id == modelId && !model.IsSeparator)
+            {
+                AvailableModels[i] = model with { IsDownloaded = isDownloaded };
+                break;
+            }
+        }
     }
 
     /* Populates the voices reported by the active engine and selects the configured one */
@@ -323,25 +377,45 @@ public partial class SettingsViewModel : ViewModelBase
         SelectedVoice = AvailableVoices.FirstOrDefault(v => v.Id == configuredVoice) ?? AvailableVoices.FirstOrDefault();
     }
 
-    /* Populates model download statuses */
+    /* Populates model download statuses with engine separators and resource tags */
     private void LoadModelStatuses()
     {
         ModelStatuses.Clear();
         if (_downloadManager == null)
             return;
 
-        foreach (var model in _downloadManager.GetAvailableModels())
+        foreach (var engine in _downloadManager.GetEngines())
         {
-            ModelStatuses.Add(
-                new ModelStatusItem
-                {
-                    Model = model.Id,
-                    Name = model.DisplayName,
-                    IsDownloaded = _downloadManager.IsModelDownloaded(model.Id),
-                    HasDownloadableFiles = model.DownloadFiles.Count > 0,
-                    Progress = 0,
-                }
-            );
+            if (engine.Models.Count == 0)
+                continue;
+
+            string engineTitle = !string.IsNullOrWhiteSpace(engine.DisplayName) ? engine.DisplayName : engine.Id;
+            ModelStatuses.Add(new ModelStatusItem
+            {
+                IsSeparator = true,
+                SeparatorTitle = engineTitle
+            });
+
+            foreach (var model in engine.Models)
+            {
+                string? cpu = model.CpuUsage?.Trim().ToLowerInvariant();
+                ModelStatuses.Add(
+                    new ModelStatusItem
+                    {
+                        Model = model.Id,
+                        Name = model.DisplayName,
+                        IsDownloaded = _downloadManager.IsModelDownloaded(model.Id),
+                        HasDownloadableFiles = model.DownloadFiles.Count > 0,
+                        Progress = 0,
+                        SizeTag = model.Size.HasValue ? $"Size: {model.Size.Value} MB" : null,
+                        RamUsageTag = model.RamUsage.HasValue ? $"Ram usage: {model.RamUsage.Value} MB" : null,
+                        CpuUsageTag = !string.IsNullOrEmpty(model.CpuUsage) ? $"CPU usage: {model.CpuUsage}" : null,
+                        IsCpuLow = cpu == "low",
+                        IsCpuMedium = cpu == "medium",
+                        IsCpuHigh = cpu == "high"
+                    }
+                );
+            }
         }
     }
 
@@ -416,7 +490,7 @@ public partial class SettingsViewModel : ViewModelBase
     /* Auto-save triggers */
     partial void OnSelectedModelChanged(ModelMetadata? value)
     {
-        if (_isLoading || value == null)
+        if (_isLoading || value == null || value.IsSeparator)
             return;
 
         /* Every installed engine's models are listed, but only downloaded ones can be activated.
@@ -694,6 +768,15 @@ public partial class SettingsViewModel : ViewModelBase
         IsAdvancedView = false;
     }
 
+    /* Navigates directly to the Engine Management tab in Advanced View */
+    [RelayCommand]
+    private void NavigateToEngineManagement()
+    {
+        LoadSettings();
+        SelectedTab = AdvancedTab.EngineManagement;
+        IsAdvancedView = true;
+    }
+
     [RelayCommand]
     private void SelectTab(AdvancedTab tab) => SelectedTab = tab;
 
@@ -817,7 +900,7 @@ public partial class SettingsViewModel : ViewModelBase
     [RelayCommand]
     private async Task DownloadModelAsync(ModelStatusItem item)
     {
-        if (_downloadManager == null || item == null || item.IsDownloading)
+        if (_downloadManager == null || item == null || item.IsSeparator || item.IsDownloading)
             return;
 
         item.IsDownloading = true;
@@ -827,7 +910,10 @@ public partial class SettingsViewModel : ViewModelBase
             var result = await _downloadManager.DownloadModelAsync(item.Model, progress);
             item.IsDownloaded = result.IsSuccess;
             if (result.IsSuccess)
+            {
+                UpdateAvailableModelDownloadState(item.Model, true);
                 await RefreshVoicesAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -844,13 +930,19 @@ public partial class SettingsViewModel : ViewModelBase
     [RelayCommand]
     private void DeleteModel(ModelStatusItem item)
     {
-        if (_downloadManager == null || item == null)
+        if (_downloadManager == null || item == null || item.IsSeparator)
             return;
         var res = _downloadManager.DeleteModel(item.Model);
         if (res.IsSuccess)
         {
             item.IsDownloaded = false;
             item.Progress = 0;
+            UpdateAvailableModelDownloadState(item.Model, false);
+
+            if (SelectedModel != null && SelectedModel.Id == item.Model)
+            {
+                SelectedModel = AvailableModels.FirstOrDefault(m => m.IsUnselected) ?? ModelMetadata.Unselected;
+            }
         }
     }
 

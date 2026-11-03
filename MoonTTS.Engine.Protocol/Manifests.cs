@@ -22,6 +22,9 @@ public sealed class EngineModelManifest
 {
     public string Id { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    public int? Size { get; set; }
+    public int? RamUsage { get; set; }
+    public string? CpuUsage { get; set; }
     public Dictionary<string, string> DownloadFiles { get; set; } = new();
 }
 

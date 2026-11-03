@@ -8,6 +8,9 @@
     {
       "id": "kokoro-v1.0",
       "displayName": "Kokoro ONNX (FP32 - Highest Quality)",
+      "size": 310,
+      "ramUsage": 650,
+      "cpuUsage": "high",
       "downloadFiles": {
         "kokoro.onnx": "https://github.com/Lyrcaxis/KokoroSharpBinaries/releases/download/v2.0.0/kokoro.onnx"
       }
@@ -15,6 +18,9 @@
     {
       "id": "kokoro-v1.0-fp16",
       "displayName": "Kokoro ONNX (FP16 - Performance)",
+      "size": 169,
+      "ramUsage": 400,
+      "cpuUsage": "medium",
       "downloadFiles": {
         "kokoro-v1.0-fp16.onnx": "https://github.com/Lyrcaxis/KokoroSharpBinaries/releases/download/v2.0.0/kokoro-fp16.onnx"
       }
@@ -22,6 +28,9 @@
     {
       "id": "kokoro-v1.1-zh-fp16",
       "displayName": "Kokoro ONNX Chinese (FP16)",
+      "size": 169,
+      "ramUsage": 400,
+      "cpuUsage": "medium",
       "downloadFiles": {
         "kokoro-zh-fp16.onnx": "https://github.com/Lyrcaxis/KokoroSharpBinaries/releases/download/v2.0.0/kokoro-zh-fp16.onnx"
       }

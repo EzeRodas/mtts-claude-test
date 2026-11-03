@@ -11,6 +11,7 @@ namespace MoonTTS.Core.Services;
             IModelDownloader modelDownloader,
             SettingsManager settingsManager)
         - GetAvailableModels() : IEnumerable<ModelMetadata>
+        - GetEngines() : IReadOnlyList<EngineDescriptor>
         - IsModelDownloaded(ModelId modelId) : bool
         - DownloadModelAsync(
             ModelId modelId,
@@ -41,6 +42,12 @@ public class DownloadManager
     public IEnumerable<ModelMetadata> GetAvailableModels()
     {
         return _modelRegistry.GetAvailableModels();
+    }
+
+    /* Returns all installed engines and their descriptors */
+    public IReadOnlyList<EngineDescriptor> GetEngines()
+    {
+        return _modelRegistry.GetEngines();
     }
 
     /* Checks if the file exists */

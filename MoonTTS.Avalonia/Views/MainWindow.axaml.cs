@@ -17,8 +17,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         
-        Width = 770;
-        Height = 50;
+        Width = 776;
+        Height = 56;
     }
 
     public bool IsExiting { get; set; } = false;

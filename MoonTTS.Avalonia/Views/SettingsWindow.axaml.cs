@@ -27,7 +27,7 @@ namespace MoonTTS.Avalonia.Views;
 public partial class SettingsWindow : Window
 {
     public const double QuickWidth = 320;
-    public const double QuickHeight = 550;
+    public const double QuickHeight = 520;
     public const double AdvancedWidth = 760;
     public const double AdvancedHeight = 540;
 

@@ -9,6 +9,7 @@ namespace MoonTTS.Infrastructure.Tts;
 /* File Structure:
         - EngineCatalog(string? enginesDirectory)
         - GetAvailableModels() : IEnumerable<ModelMetadata>
+        - GetEngines() : IReadOnlyList<EngineDescriptor>
         - GetModelMetadata(ModelId modelId) : ModelMetadata?
         - FindModel(string query) : ModelMetadata?
         - GetEngine(string engineId) : EngineDescriptor?
@@ -32,6 +33,9 @@ public class EngineCatalog : IModelRegistry
 
     /* Returns every model of every installed engine */
     public IEnumerable<ModelMetadata> GetAvailableModels() => _engines.Value.SelectMany(e => e.Models);
+
+    /* Returns every installed engine and its descriptors */
+    public IReadOnlyList<EngineDescriptor> GetEngines() => _engines.Value;
 
     /* Looks up a model by its exact id */
     public ModelMetadata? GetModelMetadata(ModelId modelId) =>
@@ -112,7 +116,10 @@ public class EngineCatalog : IModelRegistry
                 .Select(m => new ModelMetadata(
                     new ModelId(manifest.Id, m.Id),
                     string.IsNullOrWhiteSpace(m.DisplayName) ? m.Id : m.DisplayName,
-                    new Dictionary<string, string>(m.DownloadFiles)))
+                    new Dictionary<string, string>(m.DownloadFiles),
+                    m.Size,
+                    m.RamUsage,
+                    m.CpuUsage))
                 .ToList();
 
             return new EngineDescriptor(
