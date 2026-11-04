@@ -155,12 +155,14 @@ EOF
 cd "$ESPEAK_SRC"
 ./autogen.sh
 
+EXTRA_CFLAGS="-O3 -fPIC -D_GNU_SOURCE"
 EXTRA_LDFLAGS="-L$WORK_DIR"
 EXTRA_LIBS="$WORK_DIR/lib1.o -lm"
 EXE_EXT=""
 ESPEAK_DATA_DIR="$ESPEAK_SRC"
 if [ "$IS_WINDOWS" -eq 1 ]; then
-    EXTRA_LDFLAGS="-L$WORK_DIR -no-undefined -Wl,--export-all-symbols -static-libgcc"
+    EXTRA_CFLAGS="-O3 -D_GNU_SOURCE"
+    EXTRA_LDFLAGS="-L$WORK_DIR"
     EXTRA_LIBS="$WORK_DIR/lib1.o -lm -ladvapi32"
     EXE_EXT=".exe"
     ESPEAK_DATA_DIR="$(cygpath -m "$ESPEAK_SRC" 2>/dev/null || echo "$ESPEAK_SRC")"
@@ -168,15 +170,16 @@ fi
 
 ./configure \
     --prefix="$WORK_DIR/install" \
+    --enable-static \
     --without-async \
     --with-mbrola \
     --without-pcaudiolib \
     --without-sonic \
     --without-klatt \
     --without-speechplayer \
-    CFLAGS="-O3 -fPIC -D_GNU_SOURCE" \
+    CFLAGS="$EXTRA_CFLAGS" \
     LDFLAGS="$EXTRA_LDFLAGS" \
-    LIBS="$EXTRA_LIBS"
+    LIBS="$EXTRA_LIBS" || { cat config.log; exit 1; }
 
 make -j"$NPROC" src/libespeak-ng.la "src/espeak-ng${EXE_EXT}"
 make -j"$NPROC" espeak-ng-data/phontab espeak-ng-data/en_dict
@@ -202,8 +205,13 @@ if [ "$IS_WINDOWS" -eq 1 ]; then
     NATIVE_OUT="$SCRIPT_DIR/runtimes/win-x64/native"
     rm -rf "$NATIVE_OUT"
     mkdir -p "$NATIVE_OUT"
-    DLL_PATH="$(ls "$ESPEAK_SRC"/src/.libs/libespeak-ng*.dll | head -n 1)"
-    cp -L "$DLL_PATH" "$NATIVE_OUT/libespeak-ng.dll"
+    gcc -shared -O3 \
+        -o "$NATIVE_OUT/libespeak-ng.dll" \
+        -Wl,--whole-archive "$ESPEAK_SRC/src/.libs/libespeak-ng.a" -Wl,--no-whole-archive \
+        "$WORK_DIR/lib1.o" \
+        -Wl,--export-all-symbols \
+        -static-libgcc \
+        -lm -ladvapi32
     strip --strip-unneeded "$NATIVE_OUT/libespeak-ng.dll"
     NATIVE_LIB_PATH="$NATIVE_OUT/libespeak-ng.dll"
 elif [ "$IS_MACOS" -eq 1 ]; then
