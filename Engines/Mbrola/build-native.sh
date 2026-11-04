@@ -40,7 +40,7 @@ fifo_path, onechannel_path = sys.argv[1], sys.argv[2]
 with open(fifo_path, encoding="utf-8") as f:
     fifo = f.read()
 with open(fifo_path, "w", encoding="utf-8") as f:
-    f.write(fifo.replace("static int readline_InputFifo", "static int32 readline_InputFifo"))
+    f.write(fifo.replace("static int readline_InputFifo", "static long readline_InputFifo"))
 
 with open(onechannel_path, encoding="utf-8") as f:
     c = f.read()
@@ -77,6 +77,7 @@ with open(onechannel_path, "w", encoding="utf-8") as f:
 PY
 
 gcc -O3 -fPIC -c \
+    -Wno-incompatible-pointer-types -Wno-implicit-function-declaration \
     -D_GNU_SOURCE -DLITTLE_ENDIAN -UWIN32 -UMSDOS \
     -I"$MBROLA_SRC" \
     -I"$MBROLA_SRC/Misc" \
@@ -155,10 +156,14 @@ cd "$ESPEAK_SRC"
 ./autogen.sh
 
 EXTRA_LDFLAGS="-L$WORK_DIR"
+EXTRA_LIBS="$WORK_DIR/lib1.o -lm"
 EXE_EXT=""
+ESPEAK_DATA_DIR="$ESPEAK_SRC"
 if [ "$IS_WINDOWS" -eq 1 ]; then
     EXTRA_LDFLAGS="-L$WORK_DIR -no-undefined -Wl,--export-all-symbols -static-libgcc"
+    EXTRA_LIBS="$WORK_DIR/lib1.o -lm -ladvapi32"
     EXE_EXT=".exe"
+    ESPEAK_DATA_DIR="$(cygpath -m "$ESPEAK_SRC" 2>/dev/null || echo "$ESPEAK_SRC")"
 fi
 
 ./configure \
@@ -171,7 +176,7 @@ fi
     --without-speechplayer \
     CFLAGS="-O3 -fPIC -D_GNU_SOURCE" \
     LDFLAGS="$EXTRA_LDFLAGS" \
-    LIBS="$WORK_DIR/lib1.o -lm"
+    LIBS="$EXTRA_LIBS"
 
 make -j"$NPROC" src/libespeak-ng.la "src/espeak-ng${EXE_EXT}"
 make -j"$NPROC" espeak-ng-data/phontab espeak-ng-data/en_dict
@@ -180,12 +185,12 @@ echo "[4/5] Compiling phoneme translation tables (mbrola_ph) and 36 language dic
 mkdir -p espeak-ng-data/mbrola_ph
 for mbr_src in phsource/mbrola/*; do
     mbr_name="$(basename "$mbr_src")"
-    ESPEAK_DATA_PATH="$ESPEAK_SRC" "src/espeak-ng${EXE_EXT}" --compile-mbrola="phsource/mbrola/${mbr_name}"
+    ESPEAK_DATA_PATH="$ESPEAK_DATA_DIR" "src/espeak-ng${EXE_EXT}" --compile-mbrola="phsource/mbrola/${mbr_name}"
 done
 
 LANGS="af ar pt fr zh hr cs de et en es el he hu is id hi fa it ja la lt ms nl mi pl ro sv te tr"
 for l in $LANGS; do
-    (cd dictsource && ESPEAK_DATA_PATH="$ESPEAK_SRC" "../src/espeak-ng${EXE_EXT}" --compile="$l")
+    (cd dictsource && ESPEAK_DATA_PATH="$ESPEAK_DATA_DIR" "../src/espeak-ng${EXE_EXT}" --compile="$l")
 done
 
 echo "[5/5] Staging native library and pruned espeak-ng-data into $SCRIPT_DIR..."
