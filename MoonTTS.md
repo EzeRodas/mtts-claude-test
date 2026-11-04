@@ -116,7 +116,7 @@ The foundational domain layer containing pure domain models, business logic cont
 
 #### Common & Result Pattern
 * **MoonTTS.Domain/Common/Result.cs**: Non-generic functional result type encapsulating operation success/failure status and error messages without throwing exceptions for control flow.
-* **MoonTTS.Domain/Common/Result< T >.cs**: Generic functional result type encapsulating a strongly typed payload `Value` or an error message and exception.
+* **MoonTTS.Domain/Common/ResultT.cs**: Generic functional result type (`Result<T>`) encapsulating a strongly typed payload `Value` or an error message and exception.
 
 #### Audio Contracts
 * **MoonTTS.Domain/Audio/AudioFormat.cs**: Value record defining PCM audio geometry (sample rate, channels, bit depth) and audio byte duration calculation (`GetDuration`).
