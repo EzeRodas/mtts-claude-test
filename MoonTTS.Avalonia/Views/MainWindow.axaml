@@ -14,6 +14,8 @@
         WindowStartupLocation="Manual"
         Padding="1"
         CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
         CornerRadius="100"
         >
         
@@ -136,6 +138,7 @@
                 VerticalContentAlignment="Center"
                 Cursor="Hand"
                 Margin="0, 6, 0, 6"
+                x:Name="SettingsBtn"
                 Command="{Binding ToggleSettingsCommand}"
                 >
                 
@@ -239,6 +242,7 @@
                 <Button 
                     Width="44" 
                     Height="44" 
+                    Margin="0, 0, 4, 0"
                     CornerRadius="48" 
                     HorizontalAlignment="Right"
                     HorizontalContentAlignment="Center"

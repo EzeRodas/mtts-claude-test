@@ -172,6 +172,9 @@ public partial class SettingsViewModel : ViewModelBase
     private int _selectedMonitorIndex;
 
     [ObservableProperty]
+    private bool _alwaysOnTop = true;
+
+    [ObservableProperty]
     private bool _openOnStartup;
 
     [ObservableProperty]
@@ -452,6 +455,7 @@ public partial class SettingsViewModel : ViewModelBase
             SpeechSpeed = engineConfig.Speed > 0 ? engineConfig.Speed : 1.0f;
             SelectedMonitorIndex = appConfig.DefaultMonitor;
             OpenOnStartup = appConfig.OpenOnStartup;
+            AlwaysOnTop = appConfig.AlwaysOnTop;
             HideOnSynth = appConfig.HideOnSynth;
             RememberPosition = appConfig.RememberPosition;
             CreateMicOnStartup = appConfig.CreateMicOnStartup;
@@ -645,6 +649,16 @@ public partial class SettingsViewModel : ViewModelBase
 
     partial void OnOpenOnStartupChanged(bool value) => AutoSave();
 
+    /* Applies the new on-top state to the open windows right away, then persists it */
+    partial void OnAlwaysOnTopChanged(bool value)
+    {
+        if (_isLoading)
+            return;
+
+        _windowService?.ApplyAlwaysOnTop(value);
+        AutoSave();
+    }
+
     partial void OnHideOnSynthChanged(bool value) => AutoSave();
 
     partial void OnRememberPositionChanged(bool value) => AutoSave();
@@ -671,6 +685,7 @@ public partial class SettingsViewModel : ViewModelBase
 
         appConfig.DefaultMonitor = SelectedMonitorIndex;
         appConfig.OpenOnStartup = OpenOnStartup;
+        appConfig.AlwaysOnTop = AlwaysOnTop;
         appConfig.HideOnSynth = HideOnSynth;
         appConfig.RememberPosition = RememberPosition;
         appConfig.CreateMicOnStartup = CreateMicOnStartup;

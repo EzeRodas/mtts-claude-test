@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\MoonTTS.Domain\MoonTTS.Domain.csproj" />
@@ -14,6 +14,11 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
     <PackageReference Include="NAudio" Version="3.0.1" />
   </ItemGroup>
+
+    <!-- Required by the source-generated COM interfaces of the Windows overlay helper -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
 
     <!-- If developing on Windows, build both targets. If developing on Linux/Mac, only build net10.0 -->
     <!-- WHY do I need a Windows machine to compile for Windows??? Are you Apple???? -->

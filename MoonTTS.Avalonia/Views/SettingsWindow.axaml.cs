@@ -11,6 +11,8 @@ namespace MoonTTS.Avalonia.Views;
 
 /* File Structure:
             - SettingsWindow
+            - IsExiting : bool
+            - LastDeactivatedTick : long
             - SettingsWindow()
             - SetOwnerWindow(MainWindow) : void
             - ResetToQuickView() : void
@@ -33,8 +35,13 @@ public partial class SettingsWindow : Window
 
     private MainWindow? _mainWindow;
     
+    /* Indicates whether the application is shutting down rather than hiding the settings window */
     public bool IsExiting { get; set; } = false;
 
+    /* Monotonic tick recorded when the window auto-hides on deactivation so clicking the HUD settings button does not immediately reopen it */
+    public long LastDeactivatedTick { get; set; }
+
+    /* Initializes the settings popup dimensions and event handlers */
     public SettingsWindow()
     {
         InitializeComponent();
@@ -74,6 +81,7 @@ public partial class SettingsWindow : Window
             vm.CancelRecording();
         }
         ResetToQuickView();
+        LastDeactivatedTick = Environment.TickCount64;
         Hide();
     }
 

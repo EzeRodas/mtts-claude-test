@@ -11,18 +11,50 @@ using MoonTTS.Domain.Interfaces;
 
 namespace MoonTTS.Avalonia.Views;
 
+/* File Structure:
+        - MainWindow()
+        - IsExiting : bool
+        - SettingsButtonPointerPressed : Action?
+        - OnSettingsButtonPointerPressed(object?, PointerPressedEventArgs) : void
+        - OnClosing(WindowClosingEventArgs) : void
+        - PositionAtBottomCenter(int, int?) : void
+        - DragButton_PointerPressed(object?, PointerPressedEventArgs) : void
+        - DragButton_PointerReleased(object?, PointerReleasedEventArgs) : void
+        - OnLoaded(RoutedEventArgs) : void
+        - FocusInputBox() : void
+*/
+
 public partial class MainWindow : Window
 {
+    /* Initializes the main HUD window dimensions and wires pointer tunnel handlers */
     public MainWindow()
     {
         InitializeComponent();
         
         Width = 776;
         Height = 56;
+
+        SettingsBtn.AddHandler(
+            PointerPressedEvent,
+            OnSettingsButtonPointerPressed,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
     }
 
+    /* Indicates whether the application is shutting down rather than hiding to the tray */
     public bool IsExiting { get; set; } = false;
 
+    /* Callback invoked on mouse-down over the settings button before focus changes complete */
+    public Action? SettingsButtonPointerPressed { get; set; }
+
+    /* Notifies the window service when the settings button is pressed so an open settings popup is closed cleanly */
+    private void OnSettingsButtonPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            SettingsButtonPointerPressed?.Invoke();
+    }
+
+    /* Cancels window destruction and hides the window instead unless the application is exiting */
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         if (!IsExiting)
@@ -64,7 +96,7 @@ public partial class MainWindow : Window
         Position = new PixelPoint(x, y);
     }
     
-
+    /* Starts window move-drag when the drag button is pressed with the left mouse button */
     public void DragButton_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
@@ -74,14 +106,22 @@ public partial class MainWindow : Window
         }
     }
     
+    /* Clears the pressed visual state when the drag button is released */
     public void DragButton_PointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         if (sender is Border b) b.Classes.Remove("Pressed");
     }
 
+    /* Focuses the text input box once the window visual tree is loaded */
     protected override void OnLoaded(RoutedEventArgs e)
     {
         base.OnLoaded(e);
+        InputBox.Focus();
+    }
+
+    /* Gives keyboard focus to the text input so typing can start as soon as the window is revealed */
+    public void FocusInputBox()
+    {
         InputBox.Focus();
     }
 }

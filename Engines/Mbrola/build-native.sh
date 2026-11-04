@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
-# Builds the self-contained libespeak-ng.so (with numediart/MBROLA LibOneChannel linked in-memory)
-# and stages the pruned espeak-ng-data directory inside Engines/Mbrola/.
+# Builds the self-contained libespeak-ng (.so on Linux, .dll on Windows/MSYS2, .dylib on macOS)
+# with numediart/MBROLA LibOneChannel linked in-memory and stages espeak-ng-data.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="$(mktemp -d -t moontts-mbrola-build-XXXXXX)"
 trap 'rm -rf "$WORK_DIR"' EXIT
+
+UNAME_S="$(uname -s)"
+UNAME_M="$(uname -m)"
+IS_WINDOWS=0
+IS_MACOS=0
+case "$UNAME_S" in
+    MINGW*|MSYS*|CYGWIN*) IS_WINDOWS=1 ;;
+    Darwin*) IS_MACOS=1 ;;
+esac
+NPROC="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
 ESPEAK_VERSION="1.52.0"
 ESPEAK_URL="https://github.com/espeak-ng/espeak-ng/archive/refs/tags/${ESPEAK_VERSION}.tar.gz"
@@ -22,12 +32,17 @@ ESPEAK_SRC="$WORK_DIR/espeak-ng-${ESPEAK_VERSION}"
 MBROLA_SRC="$WORK_DIR/MBROLA-master"
 
 echo "[2/5] Patching and compiling MBROLA LibOneChannel in-memory engine..."
-sed -i 's/static int readline_InputFifo/static long readline_InputFifo/' "$MBROLA_SRC/Parser/input_fifo.c"
-
-python3 - "$MBROLA_SRC/LibOneChannel/onechannel.c" <<'PY'
+python3 - "$MBROLA_SRC/Parser/input_fifo.c" "$MBROLA_SRC/LibOneChannel/onechannel.c" <<'PY'
 import sys
-path = sys.argv[1]
-with open(path, encoding="utf-8") as f:
+
+fifo_path, onechannel_path = sys.argv[1], sys.argv[2]
+
+with open(fifo_path, encoding="utf-8") as f:
+    fifo = f.read()
+with open(fifo_path, "w", encoding="utf-8") as f:
+    f.write(fifo.replace("static int readline_InputFifo", "static int32 readline_InputFifo"))
+
+with open(onechannel_path, encoding="utf-8") as f:
     c = f.read()
 
 target = """void DLL_EXPORT close_MBR(void)
@@ -57,12 +72,12 @@ replacement = """void DLL_EXPORT close_MBR(void)
 }"""
 
 assert target in c, "close_MBR target block not found"
-with open(path, "w", encoding="utf-8") as f:
+with open(onechannel_path, "w", encoding="utf-8") as f:
     f.write(c.replace(target, replacement, 1))
 PY
 
 gcc -O3 -fPIC -c \
-    -D_GNU_SOURCE -DLITTLE_ENDIAN \
+    -D_GNU_SOURCE -DLITTLE_ENDIAN -UWIN32 -UMSDOS \
     -I"$MBROLA_SRC" \
     -I"$MBROLA_SRC/Misc" \
     -I"$MBROLA_SRC/Parser" \
@@ -73,12 +88,17 @@ gcc -O3 -fPIC -c \
     -o "$WORK_DIR/lib1.o"
 
 echo "[3/5] Patching and compiling libespeak-ng with direct LibOneChannel linkage..."
-sed -i 's/basename(/mbr_basename(/g' "$ESPEAK_SRC/src/libespeak-ng/compilembrola.c"
-
-python3 - "$ESPEAK_SRC/src/libespeak-ng/synth_mbrola.c" <<'PY'
+python3 - "$ESPEAK_SRC/src/libespeak-ng/compilembrola.c" "$ESPEAK_SRC/src/libespeak-ng/synth_mbrola.c" <<'PY'
 import sys
-path = sys.argv[1]
-with open(path, encoding="utf-8") as f:
+
+compile_path, synth_path = sys.argv[1], sys.argv[2]
+
+with open(compile_path, encoding="utf-8") as f:
+    comp = f.read()
+with open(compile_path, "w", encoding="utf-8") as f:
+    f.write(comp.replace("basename(", "mbr_basename("))
+
+with open(synth_path, encoding="utf-8") as f:
     c = f.read()
 
 c = c.replace("char path[sizeof(path_home)+15];", "char path[4096];", 1)
@@ -89,7 +109,7 @@ replacement = """\tsprintf(path, "%s/mbrola/%s", path_home, mbrola_voice);
 \t\tsprintf(path, "%s/%s", moon_mbr, mbrola_voice);
 \t}"""
 assert target in c, "sprintf target in synth_mbrola.c not found"
-with open(path, "w", encoding="utf-8") as f:
+with open(synth_path, "w", encoding="utf-8") as f:
     f.write(c.replace(target, replacement, 1))
 PY
 
@@ -133,6 +153,14 @@ EOF
 
 cd "$ESPEAK_SRC"
 ./autogen.sh
+
+EXTRA_LDFLAGS="-L$WORK_DIR"
+EXE_EXT=""
+if [ "$IS_WINDOWS" -eq 1 ]; then
+    EXTRA_LDFLAGS="-L$WORK_DIR -no-undefined -Wl,--export-all-symbols -static-libgcc"
+    EXE_EXT=".exe"
+fi
+
 ./configure \
     --prefix="$WORK_DIR/install" \
     --without-async \
@@ -142,32 +170,63 @@ cd "$ESPEAK_SRC"
     --without-klatt \
     --without-speechplayer \
     CFLAGS="-O3 -fPIC -D_GNU_SOURCE" \
-    LDFLAGS="-L$WORK_DIR" \
+    LDFLAGS="$EXTRA_LDFLAGS" \
     LIBS="$WORK_DIR/lib1.o -lm"
 
-make -j"$(nproc)" src/libespeak-ng.la src/espeak-ng
-make -j"$(nproc)" espeak-ng-data/phontab espeak-ng-data/en_dict
+make -j"$NPROC" src/libespeak-ng.la "src/espeak-ng${EXE_EXT}"
+make -j"$NPROC" espeak-ng-data/phontab espeak-ng-data/en_dict
 
 echo "[4/5] Compiling phoneme translation tables (mbrola_ph) and 36 language dictionaries..."
 mkdir -p espeak-ng-data/mbrola_ph
 for mbr_src in phsource/mbrola/*; do
     mbr_name="$(basename "$mbr_src")"
-    ESPEAK_DATA_PATH="$ESPEAK_SRC" src/espeak-ng --compile-mbrola="phsource/mbrola/${mbr_name}"
+    ESPEAK_DATA_PATH="$ESPEAK_SRC" "src/espeak-ng${EXE_EXT}" --compile-mbrola="phsource/mbrola/${mbr_name}"
 done
 
 LANGS="af ar pt fr zh hr cs de et en es el he hu is id hi fa it ja la lt ms nl mi pl ro sv te tr"
 for l in $LANGS; do
-    (cd dictsource && ESPEAK_DATA_PATH="$ESPEAK_SRC" ../src/espeak-ng --compile="$l")
+    (cd dictsource && ESPEAK_DATA_PATH="$ESPEAK_SRC" "../src/espeak-ng${EXE_EXT}" --compile="$l")
 done
 
 echo "[5/5] Staging native library and pruned espeak-ng-data into $SCRIPT_DIR..."
-NATIVE_OUT="$SCRIPT_DIR/runtimes/linux-x64/native"
 DATA_OUT="$SCRIPT_DIR/espeak-ng-data"
-rm -rf "$NATIVE_OUT" "$DATA_OUT"
-mkdir -p "$NATIVE_OUT" "$DATA_OUT/voices/mb" "$DATA_OUT/mbrola_ph" "$DATA_OUT/mbrola"
+rm -rf "$DATA_OUT"
+mkdir -p "$DATA_OUT/voices/mb" "$DATA_OUT/mbrola_ph" "$DATA_OUT/mbrola"
 
-cp -L "$ESPEAK_SRC/src/.libs/libespeak-ng.so" "$NATIVE_OUT/libespeak-ng.so"
-strip --strip-unneeded "$NATIVE_OUT/libespeak-ng.so"
+if [ "$IS_WINDOWS" -eq 1 ]; then
+    NATIVE_OUT="$SCRIPT_DIR/runtimes/win-x64/native"
+    rm -rf "$NATIVE_OUT"
+    mkdir -p "$NATIVE_OUT"
+    DLL_PATH="$(ls "$ESPEAK_SRC"/src/.libs/libespeak-ng*.dll | head -n 1)"
+    cp -L "$DLL_PATH" "$NATIVE_OUT/libespeak-ng.dll"
+    strip --strip-unneeded "$NATIVE_OUT/libespeak-ng.dll"
+    NATIVE_LIB_PATH="$NATIVE_OUT/libespeak-ng.dll"
+elif [ "$IS_MACOS" -eq 1 ]; then
+    if [ "$UNAME_M" = "arm64" ]; then
+        MAC_RID="osx-arm64"
+    else
+        MAC_RID="osx-x64"
+    fi
+    NATIVE_OUT="$SCRIPT_DIR/runtimes/${MAC_RID}/native"
+    rm -rf "$NATIVE_OUT"
+    mkdir -p "$NATIVE_OUT"
+    DYLIB_PATH="$(ls "$ESPEAK_SRC"/src/.libs/libespeak-ng*.dylib | head -n 1)"
+    cp -L "$DYLIB_PATH" "$NATIVE_OUT/libespeak-ng.dylib"
+    strip -x "$NATIVE_OUT/libespeak-ng.dylib"
+    NATIVE_LIB_PATH="$NATIVE_OUT/libespeak-ng.dylib"
+else
+    if [ "$UNAME_M" = "aarch64" ] || [ "$UNAME_M" = "arm64" ]; then
+        LINUX_RID="linux-arm64"
+    else
+        LINUX_RID="linux-x64"
+    fi
+    NATIVE_OUT="$SCRIPT_DIR/runtimes/${LINUX_RID}/native"
+    rm -rf "$NATIVE_OUT"
+    mkdir -p "$NATIVE_OUT"
+    cp -L "$ESPEAK_SRC/src/.libs/libespeak-ng.so" "$NATIVE_OUT/libespeak-ng.so"
+    strip --strip-unneeded "$NATIVE_OUT/libespeak-ng.so"
+    NATIVE_LIB_PATH="$NATIVE_OUT/libespeak-ng.so"
+fi
 
 for core_file in phontab phonindex phondata phondata-manifest intonations; do
     cp "$ESPEAK_SRC/espeak-ng-data/$core_file" "$DATA_OUT/"
@@ -180,5 +239,5 @@ cp "$ESPEAK_SRC/espeak-ng-data/mbrola_ph/"* "$DATA_OUT/mbrola_ph/"
 cp "$ESPEAK_SRC/COPYING" "$DATA_OUT/LICENSE-espeak-ng.txt"
 cp "$MBROLA_SRC/LICENSE" "$DATA_OUT/LICENSE-mbrola.txt"
 
-echo "Done! Native library: $(ls -lh "$NATIVE_OUT/libespeak-ng.so")"
+echo "Done! Native library: $(ls -lh "$NATIVE_LIB_PATH")"
 echo "Data size: $(du -sh "$DATA_OUT")"

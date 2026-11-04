@@ -59,6 +59,7 @@ public partial class App : Application
             var hotkeyManager = Services.GetRequiredService<HotkeyManager>();
             var historyManager = Services.GetRequiredService<HistoryManager>();
             var engineProvider = Services.GetRequiredService<ITtsEngineProvider>();
+            var overlayHelper = Services.GetRequiredService<IWindowOverlayHelper>();
 
             var windowService = new WindowService(
                 mainWindow,
@@ -69,7 +70,8 @@ public partial class App : Application
                 dictionaryManager,
                 hotkeyManager,
                 historyManager,
-                engineProvider);
+                engineProvider,
+                overlayHelper);
             var speechPipeline = Services.GetRequiredService<ISpeechPipeline>();
             var shortcutManager = Services.GetRequiredService<GlobalShortcutManager>();
 
@@ -203,6 +205,7 @@ public partial class App : Application
         services.AddSingleton<ProfileManager>();
         services.AddSingleton<HttpClient>();
         services.AddSingleton<GlobalShortcutManager>();
+        services.AddSingleton<IWindowOverlayHelper>(_ => WindowOverlayManager.Create());
         services.AddSingleton<IModelRegistry>(_ => new EngineCatalog());
         services.AddSingleton<EngineVoiceStore>();
         services.AddSingleton<IModelDownloader, HttpModelDownloader>();

@@ -16,6 +16,7 @@
         WindowStartupLocation="Manual"
         CanResize="False"
         ShowInTaskbar="False"
+        Topmost="True"
         RequestedThemeVariant="Light"
         Width="320"
         Height="520">
@@ -290,6 +291,7 @@
                             <StackPanel Spacing="16" IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:AdvancedTab.General}}">
                                 <TextBlock Text="General Settings" Classes="section-title"/>
                                 <TextBlock Text="Configure startup display and window behavior." Classes="section-desc"/>
+                                <CheckBox Content="Keep HUD always on top of other windows, including fullscreen and borderless apps" IsChecked="{Binding AlwaysOnTop}"/>
                                 <CheckBox Content="Hide HUD automatically when speech begins" IsChecked="{Binding HideOnSynth}"/>
                                 <CheckBox Content="Remember HUD window coordinates on screen" IsChecked="{Binding RememberPosition}"/>
                                 <CheckBox Content="Start minimized to system tray" IsChecked="{Binding OpenOnStartup}"/>

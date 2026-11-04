@@ -22,4 +22,7 @@ public interface IWindowService
     
     /* Opens the settings menu */
     void HideSettingsWindow();
+
+    /* Applies the always-on-top state to the main and settings windows immediately */
+    void ApplyAlwaysOnTop(bool alwaysOnTop);
 }
