@@ -90,10 +90,14 @@ gcc -O3 -fPIC -c \
 ar rcs "$WORK_DIR/libmbr.a" "$WORK_DIR/lib1.o"
 
 echo "[3/5] Patching and compiling libespeak-ng with direct LibOneChannel linkage..."
-python3 - "$ESPEAK_SRC/src/libespeak-ng/compilembrola.c" "$ESPEAK_SRC/src/libespeak-ng/synth_mbrola.c" <<'PY'
+python3 - "$ESPEAK_SRC/src/libespeak-ng/compilembrola.c" "$ESPEAK_SRC/src/libespeak-ng/synth_mbrola.c" \
+    "$ESPEAK_SRC/src/include/espeak-ng/speak_lib.h" \
+    "$ESPEAK_SRC/src/include/espeak-ng/espeak_ng.h" \
+    "$ESPEAK_SRC/src/include/espeak/speak_lib.h" <<'PY'
 import sys
 
 compile_path, synth_path = sys.argv[1], sys.argv[2]
+header_paths = sys.argv[3:]
 
 with open(compile_path, encoding="utf-8") as f:
     comp = f.read()
@@ -113,6 +117,13 @@ replacement = """\tsprintf(path, "%s/mbrola/%s", path_home, mbrola_voice);
 assert target in c, "sprintf target in synth_mbrola.c not found"
 with open(synth_path, "w", encoding="utf-8") as f:
     f.write(c.replace(target, replacement, 1))
+
+for h_path in header_paths:
+    with open(h_path, encoding="utf-8") as f:
+        h_text = f.read()
+    h_text = h_text.replace("__declspec(dllimport)", "")
+    with open(h_path, "w", encoding="utf-8") as f:
+        f.write(h_text)
 PY
 
 cat << 'EOF' > "$ESPEAK_SRC/src/libespeak-ng/mbrowrap.h"
