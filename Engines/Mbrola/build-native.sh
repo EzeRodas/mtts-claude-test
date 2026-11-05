@@ -219,9 +219,13 @@ if [ "$IS_WINDOWS" -eq 1 ]; then
     NATIVE_OUT="$SCRIPT_DIR/runtimes/win-x64/native"
     rm -rf "$NATIVE_OUT"
     mkdir -p "$NATIVE_OUT"
-    ESPEAK_A="$(ls "$ESPEAK_SRC"/src/.libs/libespeak-ng.a "$ESPEAK_SRC"/src/libespeak-ng.a 2>/dev/null | head -n 1)"
-    if [ -z "$ESPEAK_A" ] || [ ! -f "$ESPEAK_A" ]; then
-        echo "Error: libespeak-ng.a not found in $ESPEAK_SRC"
+    ESPEAK_A=""
+    if [ -f "$ESPEAK_SRC/src/.libs/libespeak-ng.a" ]; then
+        ESPEAK_A="$ESPEAK_SRC/src/.libs/libespeak-ng.a"
+    elif [ -f "$ESPEAK_SRC/src/libespeak-ng.a" ]; then
+        ESPEAK_A="$ESPEAK_SRC/src/libespeak-ng.a"
+    else
+        echo "Error: libespeak-ng.a not found in $ESPEAK_SRC/src"
         exit 1
     fi
     gcc -shared -O3 \
@@ -241,7 +245,17 @@ elif [ "$IS_MACOS" -eq 1 ]; then
     NATIVE_OUT="$SCRIPT_DIR/runtimes/${MAC_RID}/native"
     rm -rf "$NATIVE_OUT"
     mkdir -p "$NATIVE_OUT"
-    DYLIB_PATH="$(ls "$ESPEAK_SRC"/src/.libs/libespeak-ng*.dylib | head -n 1)"
+    DYLIB_PATH=""
+    for f in "$ESPEAK_SRC"/src/.libs/libespeak-ng*.dylib; do
+        if [ -f "$f" ]; then
+            DYLIB_PATH="$f"
+            break
+        fi
+    done
+    if [ -z "$DYLIB_PATH" ]; then
+        echo "Error: libespeak-ng dylib not found in $ESPEAK_SRC/src/.libs"
+        exit 1
+    fi
     cp -L "$DYLIB_PATH" "$NATIVE_OUT/libespeak-ng.dylib"
     strip -x "$NATIVE_OUT/libespeak-ng.dylib"
     NATIVE_LIB_PATH="$NATIVE_OUT/libespeak-ng.dylib"
