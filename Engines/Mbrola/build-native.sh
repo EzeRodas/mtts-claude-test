@@ -87,6 +87,7 @@ gcc -O3 -fPIC -c \
     -I"$MBROLA_SRC/LibOneChannel" \
     "$MBROLA_SRC/LibOneChannel/lib1.c" \
     -o "$WORK_DIR/lib1.o"
+ar rcs "$WORK_DIR/libmbr.a" "$WORK_DIR/lib1.o"
 
 echo "[3/5] Patching and compiling libespeak-ng with direct LibOneChannel linkage..."
 python3 - "$ESPEAK_SRC/src/libespeak-ng/compilembrola.c" "$ESPEAK_SRC/src/libespeak-ng/synth_mbrola.c" <<'PY'
@@ -157,20 +158,22 @@ cd "$ESPEAK_SRC"
 
 EXTRA_CFLAGS="-O3 -fPIC -D_GNU_SOURCE"
 EXTRA_LDFLAGS="-L$WORK_DIR"
-EXTRA_LIBS="$WORK_DIR/lib1.o -lm"
+EXTRA_LIBS="-lmbr -lm"
+SHARED_FLAGS=""
 EXE_EXT=""
 ESPEAK_DATA_DIR="$ESPEAK_SRC"
 if [ "$IS_WINDOWS" -eq 1 ]; then
     EXTRA_CFLAGS="-O3 -D_GNU_SOURCE"
     EXTRA_LDFLAGS="-L$WORK_DIR"
-    EXTRA_LIBS="$WORK_DIR/lib1.o -lm -ladvapi32"
+    EXTRA_LIBS="-lmbr -lm -ladvapi32"
+    SHARED_FLAGS="--disable-shared --enable-static"
     EXE_EXT=".exe"
     ESPEAK_DATA_DIR="$(cygpath -m "$ESPEAK_SRC" 2>/dev/null || echo "$ESPEAK_SRC")"
 fi
 
 ./configure \
     --prefix="$WORK_DIR/install" \
-    --enable-static \
+    $SHARED_FLAGS \
     --without-async \
     --with-mbrola \
     --without-pcaudiolib \
@@ -205,10 +208,14 @@ if [ "$IS_WINDOWS" -eq 1 ]; then
     NATIVE_OUT="$SCRIPT_DIR/runtimes/win-x64/native"
     rm -rf "$NATIVE_OUT"
     mkdir -p "$NATIVE_OUT"
+    ESPEAK_A="$(ls "$ESPEAK_SRC"/src/.libs/libespeak-ng.a "$ESPEAK_SRC"/src/libespeak-ng.a 2>/dev/null | head -n 1)"
+    if [ -z "$ESPEAK_A" ] || [ ! -f "$ESPEAK_A" ]; then
+        echo "Error: libespeak-ng.a not found in $ESPEAK_SRC"
+        exit 1
+    fi
     gcc -shared -O3 \
         -o "$NATIVE_OUT/libespeak-ng.dll" \
-        -Wl,--whole-archive "$ESPEAK_SRC/src/.libs/libespeak-ng.a" -Wl,--no-whole-archive \
-        "$WORK_DIR/lib1.o" \
+        -Wl,--whole-archive "$ESPEAK_A" "$WORK_DIR/libmbr.a" -Wl,--no-whole-archive \
         -Wl,--export-all-symbols \
         -static-libgcc \
         -lm -ladvapi32
